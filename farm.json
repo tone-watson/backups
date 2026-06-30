@@ -1,0 +1,14 @@
+{
+  "name": "farm-backups",
+  "description": "Offsite & content backups (Dropbox sync of production); complements sys/dbops (databases).",
+  "version": "0.1.0",
+  "scripts": {
+    "sync-now": "./rclone/production-to-dropbox.sh",
+    "sync-status": "systemctl status farm-dropbox-sync.timer --no-pager",
+    "sync-logs": "tail -n 50 /var/log/farm-dropbox-sync.log",
+    "sync-watch": "tail -f /var/log/farm-dropbox-sync.log",
+    "config-snapshot": "sudo ./config/snapshot.sh",
+    "config-snapshot-status": "systemctl status farm-config-snapshot.timer --no-pager",
+    "config-snapshot-logs": "tail -n 50 /var/log/farm-config-snapshot.log"
+  }
+}

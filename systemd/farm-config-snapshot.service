@@ -1,0 +1,23 @@
+# /etc/systemd/system/farm-config-snapshot.service
+# FARM SERVICE
+# Config-as-code snapshot (DR-1): captures the box's non-regenerable identity
+# (/etc/nginx, /etc/cloudflared config + tunnel credential, farm systemd units,
+# crontab, conda env exports, apt list) into /var/backups/config-snapshot.
+#
+# Runs as ROOT — it must read root-only /etc/cloudflared (the tunnel credential).
+# Install: sudo cp this to /etc/systemd/system/ then enable the .timer (not this).
+[Unit]
+Description=Config-as-code snapshot of the box identity (/etc + conda + apt)
+# Page Farmhand (Discord) immediately, with journal detail, if this fails.
+OnFailure=farm-alert-failure@%n.service
+After=network.target
+
+[Service]
+Type=oneshot
+# Root is REQUIRED: /etc/cloudflared is 0700 root-only. Do not drop privileges.
+User=root
+Group=root
+ExecStart=/srv/farm/sys/backups/config/snapshot.sh
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=10m

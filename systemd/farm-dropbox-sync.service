@@ -1,0 +1,20 @@
+# FARM SERVICE
+# One-way Dropbox backup of /srv/farm/production (read-only push; Syncthing-safe).
+# Install: sudo cp this to /etc/systemd/system/ then enable the .timer (not this).
+
+[Unit]
+Description=One-way Dropbox backup of /srv/farm/production
+# Page Farmhand (Discord) immediately, with journal detail, if this fails.
+OnFailure=farm-alert-failure@%n.service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=gradywoodruff
+Group=gradywoodruff
+ExecStart=/srv/farm/sys/backups/rclone/production-to-dropbox.sh
+Nice=10
+IOSchedulingClass=idle
+# Don't let a slow upload run forever
+TimeoutStartSec=6h

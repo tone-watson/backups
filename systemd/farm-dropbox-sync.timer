@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Dropbox backup of /srv/farm/production every 6 hours
+
+[Timer]
+# 00:30, 06:30, 12:30, 18:30 local time
+OnCalendar=*-*-* 00,06,12,18:30:00
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

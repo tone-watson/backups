@@ -1,0 +1,13 @@
+# /etc/systemd/system/farm-config-snapshot.timer
+[Unit]
+Description=Take the config-as-code snapshot daily at 02:45 (before the 03:00 dbops backup)
+
+[Timer]
+# 02:45 — finishes before the 03:00 dbops DB backup and the 04:00 off-box push, so
+# the freshest config snapshot is on disk under /var/backups when those run.
+OnCalendar=*-*-* 02:45:00
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

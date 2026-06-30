@@ -1,0 +1,25 @@
+# Paths excluded from the Dropbox backup of /srv/farm/production.
+# Rationale: skip Syncthing's own metadata (so we never touch its bookkeeping)
+# and OS/junk/temp files. Everything else under production/ is backed up.
+
+# --- Syncthing metadata (do NOT back these up) ---
+.stfolder/**
+.stversions/**
+.stignore
+**/~syncthing~*
+**/*.tmp
+**/*.syncthing.*
+
+# --- macOS junk (Syncthing brings these over from the Mac) ---
+.DS_Store
+**/.DS_Store
+._*
+**/._*
+
+# --- python caches ---
+**/__pycache__/**
+**/*.pyc
+
+# --- Optional: the vendored Blender Studio Pipeline docs are re-cloneable.
+#     Uncomment to skip ~445 MB of third-party reference material.
+# pipeline/**
