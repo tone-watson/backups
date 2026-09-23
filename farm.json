@@ -1,7 +1,7 @@
 {
   "name": "farm-backups",
   "description": "Offsite & content backups (Dropbox sync of production); complements sys/dbops (databases).",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "scripts": {
     "sync-now": "./rclone/production-to-dropbox.sh",
     "sync-status": "systemctl status farm-dropbox-sync.timer --no-pager",
