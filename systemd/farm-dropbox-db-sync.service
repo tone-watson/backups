@@ -4,8 +4,6 @@
 # Install: sudo cp this to /etc/systemd/system/ then enable the .timer (not this).
 [Unit]
 Description=Off-box Dropbox backup of the database snapshots
-# Page Farmhand (Discord) immediately, with journal detail, if this fails.
-OnFailure=farm-alert-failure@%n.service
 After=network-online.target farm-db-backup.service
 Wants=network-online.target
 

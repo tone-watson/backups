@@ -81,7 +81,7 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
    existing tunnel** — no DNS re-binding needed. Enable `cloudflared`.
 6. **systemd units.** Copy `systemd/*.{service,timer}` to `/etc/systemd/system/`,
    `sudo systemctl daemon-reload`, then `enable --now` the timers/services you need
-   (farm-api, farmhand, farm-manager, websocket, comfyui-worker, flamenco-manager,
+   (farm-api, farm-manager, websocket, comfyui-worker, flamenco-manager,
    the dbops + backup timers, and this `farm-config-snapshot.timer`).
 7. **crontab.** Reinstall the owner's jobs: `crontab -u gradywoodruff crontab/gradywoodruff.cron`.
 8. **Verify.** `systemctl --failed`, `nginx -t`, hit the public hostnames, run

@@ -29,7 +29,6 @@ DEST="${DEST_ROOT}/databases"
 ARCHIVE="${DEST_ROOT}/_archive/databases/$(date +%Y-%m-%d)"
 LOG="/srv/farm/logs/farm-dropbox-db-sync.log"
 STAMP="/srv/farm/logs/farm-dropbox-db-sync.stamp"   # success heartbeat, read by dbops health-check.sh
-NOTIFY="/srv/farm/sys/dbops/scripts/farm-notify.sh"  # shared best-effort Farmhand pager
 
 # Log to file and stdout (systemd journal)
 exec > >(tee -a "$LOG") 2>&1
@@ -71,11 +70,7 @@ elif redis-cli --rdb "$REDIS_DUMP" >/dev/null 2>&1 && [ -s "$REDIS_DUMP" ]; then
     echo "Redis snapshot written: $REDIS_DUMP ($(du -h "$REDIS_DUMP" | cut -f1))"
 else
     echo "WARN: Redis snapshot failed (redis-cli --rdb) — shipping DBs without it"
-    # DR-3: the Redis RDB (task queue + API-key store) is in NO other backup, so a
-    # persistent failure means it silently stops being protected. Page (best-effort,
-    # non-fatal — a Redis hiccup must still not abort the DB backup).
-    [ -x "$NOTIFY" ] && "$NOTIFY" warning "Redis snapshot failed in off-box DB sync" \
-        "redis-cli --rdb could not write ${REDIS_DUMP}. The Redis task queue + API-key store (RDB-only, no other backup) is shipping STALE or ABSENT off-box. Check redis-cli availability/auth." || true
+
 fi
 
 # --backup-dir: preserve replaced/deleted files. The snapshots are small (~35M),

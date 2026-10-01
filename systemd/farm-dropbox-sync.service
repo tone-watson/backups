@@ -4,8 +4,6 @@
 
 [Unit]
 Description=One-way Dropbox backup of /srv/farm/production
-# Page Farmhand (Discord) immediately, with journal detail, if this fails.
-OnFailure=farm-alert-failure@%n.service
 After=network-online.target
 Wants=network-online.target
 

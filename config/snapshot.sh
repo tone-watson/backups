@@ -46,7 +46,6 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SNAP_DIR="/var/backups/config-snapshot"
 LOG_FILE="/var/log/farm-config-snapshot.log"
 STAMP_FILE="/var/log/farm-config-snapshot.stamp"     # world-readable success heartbeat for health-check
-NOTIFY="/srv/farm/sys/dbops/scripts/farm-notify.sh"  # shared best-effort Farmhand pager
 OWNER_USER="gradywoodruff"
 CONDA_BIN="/srv/farm/miniconda3/bin/conda"            # /home/.../miniconda3 symlinks here
 CONDA_ENVS=("api" "distribution")                     # the box-critical envs
@@ -60,7 +59,6 @@ TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 # Track per-capture outcome so one missing piece doesn't abort the whole snapshot
 WARNINGS=()
 CAPTURED=()
-CRITICAL=()   # subset of WARNINGS that are DR-critical (non-regenerable identity missing)
 
 log() {
     local level="$1"; shift
@@ -74,8 +72,8 @@ log() {
 warn() { WARNINGS+=("$1"); log "WARN" "  ${YELLOW}⚠ $1${NC}"; }
 ok()   { CAPTURED+=("$1"); log "INFO" "  ${GREEN}✓ $1${NC}"; }
 # crit: a warning that is ALSO DR-critical — the irreplaceable identity (cloudflared
-# tunnel credential, nginx/cloudflared config) failed to capture. These page Farmhand.
-crit() { CRITICAL+=("$1"); warn "$1"; }
+# tunnel credential, nginx/cloudflared config) failed to capture; keep that distinction in the local log.
+crit() { warn "DR-critical: $1"; }
 
 # Must be root (needed to read /etc/cloudflared)
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
@@ -234,13 +232,6 @@ find "$SNAP_DIR" -type f -exec chmod 600 {} +
 # health-check can tell whether this DR snapshot is still running.
 date +%s > "$STAMP_FILE" 2>/dev/null || true
 chmod 644 "$STAMP_FILE" 2>/dev/null || true
-
-# DR-critical captures failing is a real problem the owner must see — page Farmhand.
-# (Benign warnings, e.g. an optional conda env not on this box, stay log-only.)
-if [ "${#CRITICAL[@]}" -gt 0 ] && [ -x "$NOTIFY" ]; then
-    "$NOTIFY" error "Config snapshot: DR-critical capture failed" "$(printf '• %s\n' "${CRITICAL[@]}")
-Snapshot dir: $SNAP_DIR — some non-regenerable identity was NOT captured."
-fi
 
 # Summary
 log "INFO" ""

@@ -8,8 +8,6 @@
 # Install: sudo cp this to /etc/systemd/system/ then enable the .timer (not this).
 [Unit]
 Description=Config-as-code snapshot of the box identity (/etc + conda + apt)
-# Page Farmhand (Discord) immediately, with journal detail, if this fails.
-OnFailure=farm-alert-failure@%n.service
 After=network.target
 
 [Service]
