@@ -3,19 +3,110 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 API_ROOT = Path("/srv/farm/sys/api")
 RECIPES = (
     ".python-version", "scripts/runtime.sh", "scripts/runtime.py", "deploy/runtime",
     "deploy/uv", "deploy/systemd", "deploy/uv-preview", "lib/testing",
-    "docs/deployment",
+    "docs/deployment", "scripts/upstream_runtime.sh", "scripts/upstream_runtime.py",
+    "deploy/upstream",
 )
+UPSTREAM_WHEEL_ROOTS = {
+    "comfyui": Path("/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels"),
+    "stable-diffusion": Path("/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels"),
+}
+UPSTREAM_LOCKS = {
+    "comfyui": ("requirements.lock",),
+    "stable-diffusion": ("requirements.lock", "requirements-overlays.lock"),
+}
+
+
+def local_wheels(lock, wheel_root):
+    """Read the reviewed lock syntax without importing pip or following includes."""
+    if wheel_root.resolve() != wheel_root or not wheel_root.is_dir():
+        raise ValueError("Missing canonical upstream wheel root")
+    logical = ""
+    for raw in lock.decode("utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        logical += line[:-1].rstrip() + " " if line.endswith("\\") else line
+        if line.endswith("\\"):
+            continue
+        requirement, logical = logical, ""
+        # Both current recipes use version pins, HTTPS wheels or file:// wheels.
+        # Refuse extra include/options and unsupported local path syntax.
+        match = re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]*(?:==[^\s]+|\s+@\s+(\S+))"
+            r"(?:\s+--hash=sha256:[0-9a-f]{64})+", requirement,
+        )
+        if not match:
+            raise ValueError("Unsupported upstream lock requirement")
+        url = match.group(1)
+        if url is None:
+            continue
+        parsed = urlsplit(url)
+        if parsed.scheme == "https":
+            continue
+        if (parsed.scheme != "file" or parsed.netloc or parsed.query or parsed.fragment):
+            raise ValueError("Unsupported upstream wheel URL")
+        source = Path(unquote(parsed.path))
+        if (not source.is_absolute() or source.resolve() != source
+                or not source.is_relative_to(wheel_root)
+                or not re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", source.name)):
+            raise ValueError("Upstream wheel must stay inside its reviewed canonical root")
+        hashes = re.findall(r"--hash=sha256:([0-9a-f]{64})", requirement)
+        if len(hashes) != 1:
+            raise ValueError("Local upstream wheel needs exactly one reviewed hash")
+        yield source, hashes[0]
+    if logical:
+        raise ValueError("Unfinished upstream lock continuation")
+
+
+def capture_upstream(repo, revision, destination):
+    result = {}
+    for profile, wheel_root in UPSTREAM_WHEEL_ROOTS.items():
+        artifacts = {}
+        locks = {}
+        for filename in UPSTREAM_LOCKS[profile]:
+            relative = "deploy/upstream/" + profile + "/" + filename
+            lock = git(repo, "show", revision + ":" + relative)
+            locks[filename] = hashlib.sha256(lock).hexdigest()
+            for source, sha256 in local_wheels(lock, wheel_root):
+                name = source.relative_to(wheel_root).as_posix()
+                previous = artifacts.get(name)
+                if previous:
+                    if previous["sha256"] != sha256:
+                        raise ValueError("Conflicting upstream wheel hashes")
+                    previous["locks"].append(filename)
+                    continue
+                with regular(source) as stream:
+                    size = os.fstat(stream.fileno()).st_size
+                artifacts[name] = {"source": str(source), "filename": name,
+                                   "sha256": sha256, "bytes": size, "locks": [filename]}
+        wheelhouse = destination / "upstream" / profile / "wheelhouse"
+        directory(destination / "upstream")
+        directory(wheelhouse.parent)
+        directory(wheelhouse)
+        copied = 0
+        for item in artifacts.values():
+            target = wheelhouse / item["filename"]
+            directory(target.parent)
+            copied += copy_wheel(Path(item["source"]), target, item["sha256"], item["bytes"])
+        result[profile] = {"wheel_root": str(wheel_root), "lock_sha256": locks,
+                           "artifact_count": len(artifacts),
+                           "wheel_bytes": sum(item["bytes"] for item in artifacts.values()),
+                           "copied_wheels": copied, "reused_wheels": len(artifacts) - copied,
+                           "artifacts": list(artifacts.values())}
+    return result
 
 
 def digest(stream):
@@ -133,6 +224,7 @@ def capture(repo, destination):
             if old.is_symlink() or not old.is_file():
                 raise ValueError("Unexpected entry in backup wheelhouse")
             old.unlink()
+    upstream = capture_upstream(repo, revision, destination)
     for name, value in (("api-recipes.tar", archive), ("artifacts.json", manifest_bytes),
                         ("requirements.lock", lock), ("receipt.json", receipt_bytes)):
         write_bytes(destination / name, value)
@@ -140,7 +232,8 @@ def capture(repo, destination):
               "artifact_count": len(artifacts), "wheel_bytes": sum(item["bytes"] for item in artifacts),
               "copied_wheels": copied, "reused_wheels": len(artifacts) - copied,
               "recipe_paths": list(RECIPES), "recipes_sha256": hashlib.sha256(archive).hexdigest(),
-              "receipt_sha256": manifest["receipt_sha256"], "lock_sha256": manifest["lock_sha256"]}
+              "receipt_sha256": manifest["receipt_sha256"], "lock_sha256": manifest["lock_sha256"],
+              "upstream": upstream}
     write_bytes(destination / "capture.json", (json.dumps(result, indent=2) + "\n").encode())
     return result
 

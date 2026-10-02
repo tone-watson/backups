@@ -6,6 +6,8 @@ import os
 import subprocess
 import tempfile
 import unittest
+import tarfile
+from unittest import mock
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("capture_api_uv", Path(__file__).with_name("capture-api-uv.py"))
@@ -46,9 +48,36 @@ class CaptureTests(unittest.TestCase):
                     "receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
                     "lock_sha256": hashlib.sha256(lock).hexdigest()}
         (self.repo / "deploy/runtime/artifacts.json").write_text(json.dumps(manifest))
+        self.upstream_roots = {name: self.root / name / "wheels"
+                               for name in capture.UPSTREAM_WHEEL_ROOTS}
+        patcher = mock.patch.dict(capture.UPSTREAM_WHEEL_ROOTS, self.upstream_roots, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.upstream_wheels = {}
+        for profile, wheel_root in self.upstream_roots.items():
+            relative = "mode-preserved/example-2.0-py3-none-any.whl" if profile == "comfyui" else "example-2.0-py3-none-any.whl"
+            wheel = wheel_root / relative
+            wheel.parent.mkdir(parents=True)
+            wheel.write_bytes((profile + " inert bytes").encode())
+            wheel.chmod(0o644)
+            self.upstream_wheels[profile] = wheel
+            sha256 = hashlib.sha256(wheel.read_bytes()).hexdigest()
+            recipe = self.repo / "deploy/upstream" / profile
+            recipe.mkdir(parents=True)
+            entry = "example @ " + wheel.as_uri() + " --hash=sha256:" + sha256 + "\n"
+            if profile == "comfyui":
+                entry = entry.replace(" --hash", " \\\n    --hash")
+            remote = "remote==1.0 --hash=sha256:" + "a" * 64 + "\n"
+            (recipe / "requirements.lock").write_text("# fixture\n" + entry + remote)
+            if "requirements-overlays.lock" in capture.UPSTREAM_LOCKS[profile]:
+                (recipe / "requirements-overlays.lock").write_text(entry)
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"], check=True)
+
+    def commit(self):
+        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "update"], check=True)
 
     def test_copy_and_daily_reuse_preserve_source_inode_and_permissions(self):
         first = capture.capture(self.repo, self.destination)
@@ -114,6 +143,92 @@ class CaptureTests(unittest.TestCase):
             with self.subTest(filename=filename), self.assertRaises(ValueError):
                 capture.capture(self.repo, self.destination)
             path.write_bytes(old)
+
+    def test_upstream_capture_archives_recipes_and_copies_only_locked_wheels(self):
+        for wheel in self.upstream_wheels.values():
+            wheel.with_name("unlisted-1.0-py3-none-any.whl").write_bytes(b"not needed")
+        result = capture.capture(self.repo, self.destination)
+        with tarfile.open(self.destination / "api-recipes.tar") as archive:
+            self.assertIn("scripts/upstream_runtime.py", archive.getnames())
+            self.assertIn("deploy/upstream/comfyui/requirements.lock", archive.getnames())
+        for profile, source in self.upstream_wheels.items():
+            item = result["upstream"][profile]
+            self.assertEqual(item["artifact_count"], 1)
+            self.assertEqual(item["copied_wheels"], 1)
+            self.assertEqual(item["artifacts"][0]["locks"], list(capture.UPSTREAM_LOCKS[profile]))
+            target = self.destination / "upstream" / profile / "wheelhouse" / item["artifacts"][0]["filename"]
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertNotEqual(target.stat().st_ino, source.stat().st_ino)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(source.stat().st_mode & 0o777, 0o644)
+            self.assertFalse(target.with_name("unlisted-1.0-py3-none-any.whl").exists())
+        second = capture.capture(self.repo, self.destination)
+        self.assertTrue(all(item["reused_wheels"] == 1 for item in second["upstream"].values()))
+
+    def test_upstream_hardlink_is_replaced_and_corrupt_backup_repaired(self):
+        source = self.upstream_wheels["comfyui"]
+        target = self.destination / "upstream/comfyui/wheelhouse/mode-preserved" / source.name
+        target.parent.mkdir(parents=True)
+        os.link(source, target)
+        result = capture.capture(self.repo, self.destination)
+        self.assertEqual(result["upstream"]["comfyui"]["copied_wheels"], 1)
+        self.assertNotEqual(target.stat().st_ino, source.stat().st_ino)
+        self.assertEqual(source.stat().st_mode & 0o777, 0o644)
+        target.write_bytes(b"wrong")
+        capture.capture(self.repo, self.destination)
+        self.assertEqual(target.read_bytes(), source.read_bytes())
+
+    def test_upstream_corruption_or_missing_wheel_invalidates_capture(self):
+        source = self.upstream_wheels["stable-diffusion"]
+        for missing in (False, True):
+            if missing:
+                source.unlink()
+            else:
+                source.write_bytes(b"wrong")
+            with self.subTest(missing=missing), self.assertRaises((ValueError, FileNotFoundError)):
+                capture.capture(self.repo, self.destination)
+            self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+
+    def test_upstream_dirty_lock_is_ignored_and_committed_lock_conflicts_fail(self):
+        path = self.repo / "deploy/upstream/stable-diffusion/requirements-overlays.lock"
+        prefix, _ = path.read_text().rsplit("sha256:", 1)
+        path.write_text(prefix + "sha256:" + "0" * 64 + "\n")
+        self.assertEqual(capture.capture(self.repo, self.destination)["status"], "passed")
+        self.commit()
+        with self.assertRaisesRegex(ValueError, "Conflicting upstream wheel hashes"):
+            capture.capture(self.repo, self.destination)
+
+    def test_upstream_lock_requires_reviewed_path_hash_and_supported_syntax(self):
+        source = self.upstream_wheels["stable-diffusion"]
+        sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+        root = self.upstream_roots["stable-diffusion"]
+        entries = [
+            "example @ " + self.wheel.as_uri() + " --hash=sha256:" + sha256,
+            "example @ file://host" + str(source) + " --hash=sha256:" + sha256,
+            "example @ " + source.as_uri() + "?query=1 --hash=sha256:" + sha256,
+            "example @ " + source.as_uri(),
+            "example @ " + source.as_uri() + " --hash=sha256:" + sha256 + " --hash=sha256:" + sha256,
+            "-r elsewhere.txt",
+            str(source) + " --hash=sha256:" + sha256,
+        ]
+        for entry in entries:
+            with self.subTest(entry=entry), self.assertRaises(ValueError):
+                list(capture.local_wheels(entry.encode(), root))
+
+    def test_upstream_symlink_source_parent_or_backup_directory_fails(self):
+        source = self.upstream_wheels["comfyui"]
+        actual = source.parent.with_name("actual")
+        source.parent.rename(actual)
+        source.parent.symlink_to(actual)
+        with self.assertRaisesRegex(ValueError, "canonical root"):
+            capture.capture(self.repo, self.destination)
+        source.parent.unlink()
+        actual.rename(source.parent)
+        wheelhouse = self.destination / "upstream/comfyui/wheelhouse"
+        wheelhouse.mkdir(parents=True, exist_ok=True)
+        (wheelhouse / "mode-preserved").symlink_to(source.parent)
+        with self.assertRaisesRegex(ValueError, "real backup directory"):
+            capture.capture(self.repo, self.destination)
 
 
 if __name__ == '__main__':

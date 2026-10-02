@@ -12,7 +12,8 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | python envs (recipe) | `conda env export` for the `api` + `distribution` envs | `conda/` |
-| API uv recovery | committed API recipes + accepted receipt, lock and 147 wheel files | `uv/api/` |
+| API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
+| ComfyUI / Stable Diffusion uv recovery | hash-verified local wheels referenced by the committed upstream locks | `uv/api/upstream/` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
 
@@ -97,7 +98,8 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
 
 `capture-api-uv.py` uses system Python with `-I -S` and imports no API or installed
 packages. It captures the committed API revision's `.python-version`, runtime
-helpers, `deploy/runtime`, native-build input recipes, deployment configuration,
+helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
+`deploy/upstream`, native-build input recipes, deployment configuration,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
 Uncommitted API edits are deliberately excluded.
@@ -113,11 +115,32 @@ recursive permission changes. The helper creates directories/files with 700/600
 permissions and replaces a linked destination before changing file permissions.
 Conda exports remain as rollback recipes.
 
+The same capture preserves the local wheels required by the committed ComfyUI
+and Stable Diffusion locks. These include recovered native extensions that cannot
+be replaced by an arbitrary fresh source build. The only accepted source roots
+are `/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels` and
+`/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels`; files must have a
+single SHA-256 in their lock, remain inside the corresponding canonical root and
+be regular files. Symlink sources or directories are refused. Each wheel is
+copied using the same independent-file verification as the API wheelhouse.
+Nothing is downloaded, installed or imported.
+
+Copies live under `uv/api/upstream/<profile>/wheelhouse/`, preserving nested paths
+such as ComfyUI's `mode-preserved/`. `capture.json` records each original path,
+backup-relative filename, hash, byte count and referring lock, plus the lock
+hashes and copied/reused counts. Only lock-referenced wheels are added; older
+upstream copies may remain but are not part of the current recorded recovery set.
+At introduction this is 28 ComfyUI wheels and 5 Stable Diffusion wheels. Published
+package-index and HTTPS artifacts are represented by the committed hash locks;
+their wheels are not duplicated by this upstream capture. The recovery set is
+therefore not a fully offline installer.
+
 A failed capture is logged as DR-critical. When a capture has started but fails,
 `uv/api/capture.json` remains `status: incomplete`; require `status: passed` and no
 uv warning in the top-level manifest before considering this recovery set usable.
 The existing snapshot command still exits zero for warnings; inspect its report.
-The snapshot includes only the accepted wheel set, not installed environments,
+The snapshot includes the accepted API wheel set and locked local upstream
+wheels, not installed environments,
 model weights, managed Python itself, or the uv executable. Restore the reviewed
 Python 3.9.18 and uv 0.8.19 prerequisites separately at the paths recorded in the
 runtime scripts, along with the OS libraries/drivers, API source and application
@@ -125,6 +148,17 @@ data. Extract the archived recipes into a separate review directory, compare the
 against the recorded API commit, then restore the bundle to its recorded absolute
 path. Run `sh scripts/runtime.sh sync` and `check` as the Farm owner before
 starting the restored services. Never restore by copying a relocatable `.venv`.
+
+For ComfyUI or Stable Diffusion, recover the upstream checkout, custom nodes or
+extensions and models separately. Restore each recorded upstream wheel beneath
+its exact original `wheel_root`, preserving the recorded relative filename and
+verifying its SHA-256. The archive includes the runtime manifest, baseline,
+payload checks, lock, validation helpers and deployment guide. Install that
+profile's specified managed Python and uv prerequisites, then run
+`sh scripts/upstream_runtime.sh <profile> sync` and `check` from the restored API
+checkout with the application stopped. Review the captured profile deployment
+guide before starting services. Backup capture does not imply those staged
+runtime migrations have passed live GPU acceptance or been deployed.
 
 Validation of this change uses temporary fixture files, not the root snapshot:
 
