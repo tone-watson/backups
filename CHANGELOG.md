@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.3 - 2026-10-02
+### CHANGED:
+- Use uv restore recipes and stop exporting old Distribution Conda
+
+
 ## v1.1.2 - 2026-10-02
 ### CHANGED:
 - Capture locked ComfyUI and Stable Diffusion recovery artifacts
