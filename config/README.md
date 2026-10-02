@@ -9,9 +9,10 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 |---|---|---|
 | nginx vhosts + core conf | `/etc/nginx` (sites-available + sites-enabled + nginx.conf + conf.d) | `nginx/` |
 | Cloudflare tunnel | `/etc/cloudflared/config.yml` **+ the `<UUID>.json` tunnel credential** | `cloudflared/` |
-| farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` (real files, not vendor symlinks) | `systemd/` |
+| farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | python envs (recipe) | `conda env export` for the `api` + `distribution` envs | `conda/` |
+| API uv recovery | committed API recipes + accepted receipt, lock and 147 wheel files | `uv/api/` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
 
@@ -79,7 +80,7 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
 5. **Cloudflare tunnel.** Copy `cloudflared/config.yml` and `cloudflared/<UUID>.json`
    to `/etc/cloudflared/` (credential `chmod 600`, dir root-only). This **reuses the
    existing tunnel** — no DNS re-binding needed. Enable `cloudflared`.
-6. **systemd units.** Copy `systemd/*.{service,timer}` to `/etc/systemd/system/`,
+6. **systemd units.** Copy the captured base units and `*.service.d` / `*.timer.d` directories to `/etc/systemd/system/`,
    `sudo systemctl daemon-reload`, then `enable --now` the timers/services you need
    (farm-api, farm-manager, websocket, comfyui-worker, flamenco-manager,
    the dbops + backup timers, and this `farm-config-snapshot.timer`).
@@ -90,3 +91,56 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
 > A full disk image is deliberately **not** the model: ~870 GB of `code/` + conda is
 > re-creatable from the recipes above. We back up the irreplaceable bytes + this
 > config recipe, not the whole filesystem. See `../README.md` §2.
+
+
+## API uv recovery capture
+
+`capture-api-uv.py` uses system Python with `-I -S` and imports no API or installed
+packages. It captures the committed API revision's `.python-version`, runtime
+helpers, `deploy/runtime`, native-build input recipes, deployment configuration,
+`lib/testing` validation/build helpers and deployment documentation into
+`uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
+Uncommitted API edits are deliberately excluded.
+
+The accepted bundle currently lives at
+`/srv/farm/.uv/migrations/2026-10-01-api-audit/artifact-set.2obcd4ez`.
+Its `receipt.json`, `requirements.lock` and all 147 reviewed wheels are copied into
+`uv/api/`, alongside the committed `artifacts.json`. The wheel bytes need about
+2.51 GiB once; subsequent runs hash-check source and backup, retaining unchanged
+independent destination files. Corrupt copies are replaced. No hardlinks to the
+source are created, and the retained uv subtree is excluded from the shell's
+recursive permission changes. The helper creates directories/files with 700/600
+permissions and replaces a linked destination before changing file permissions.
+Conda exports remain as rollback recipes.
+
+A failed capture is logged as DR-critical. When a capture has started but fails,
+`uv/api/capture.json` remains `status: incomplete`; require `status: passed` and no
+uv warning in the top-level manifest before considering this recovery set usable.
+The existing snapshot command still exits zero for warnings; inspect its report.
+The snapshot includes only the accepted wheel set, not installed environments,
+model weights, managed Python itself, or the uv executable. Restore the reviewed
+Python 3.9.18 and uv 0.8.19 prerequisites separately at the paths recorded in the
+runtime scripts, along with the OS libraries/drivers, API source and application
+data. Extract the archived recipes into a separate review directory, compare them
+against the recorded API commit, then restore the bundle to its recorded absolute
+path. Run `sh scripts/runtime.sh sync` and `check` as the Farm owner before
+starting the restored services. Never restore by copying a relocatable `.venv`.
+
+Validation of this change uses temporary fixture files, not the root snapshot:
+
+```sh
+/usr/bin/python3 -I -S -B config/test_capture_api_uv.py
+bash -n config/snapshot.sh
+```
+
+After release, the existing timer automatically reads the updated script; no
+daemon reload is needed. To request and inspect a new local capture now:
+
+```sh
+sudo systemctl start farm-config-snapshot.service
+sudo cat /var/backups/config-snapshot/uv/api/capture.json
+sudo cat /var/backups/config-snapshot/manifest.json
+```
+
+These files remain a local backup until an encrypted off-box transfer is configured
+and verified. This change does not activate or verify such a transfer.

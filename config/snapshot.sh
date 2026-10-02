@@ -18,6 +18,8 @@
 #   crontab/      — `crontab -l` for the owner (and root), the recipe not the runtime
 #   conda/        — `conda env export` for the api + distribution envs (the recipe,
 #                   NOT the ~235 GB of packages)
+#   uv/api/       — committed API runtime/build recipes + verified recovery wheels
+#                   (independent copies, retained and hash-checked between runs)
 #   apt-list.txt  — `apt list --installed` (the package recipe)
 #   farm-symlink.txt, manifest.json — small provenance/metadata
 #
@@ -88,6 +90,7 @@ log "INFO" "${GREEN}=== Config snapshot starting ($TIMESTAMP) ===${NC}"
 mkdir -p "$SNAP_DIR"
 chown root:root "$SNAP_DIR"
 chmod 700 "$SNAP_DIR"
+# uv is retained separately; do not recopy unchanged wheels on every run.
 for sub in nginx cloudflared systemd crontab conda; do
     rm -rf "${SNAP_DIR:?}/$sub"
     mkdir -p "$SNAP_DIR/$sub"
@@ -145,6 +148,12 @@ for unit in "$SYSTEMD_SRC"/*.service "$SYSTEMD_SRC"/*.timer; do
     [ -f "$unit" ] && [ ! -L "$unit" ] || continue
     cp -a "$unit" "$SNAP_DIR/systemd/" 2>/dev/null && unit_count=$((unit_count + 1)) || warn "systemd/$(basename "$unit") copy failed"
 done
+# Preserve runtime overrides and delegated-resource settings as well as bases.
+for dropin in "$SYSTEMD_SRC"/*.service.d "$SYSTEMD_SRC"/*.timer.d; do
+    [ -d "$dropin" ] && [ ! -L "$dropin" ] || continue
+    cp -aL "$dropin" "$SNAP_DIR/systemd/" 2>/dev/null \
+        && ok "systemd/$(basename "$dropin")" || crit "systemd drop-in copy failed: $(basename "$dropin")"
+done
 shopt -u nullglob
 if [ "$unit_count" -gt 0 ]; then
     ok "systemd units: $unit_count locally-defined .service/.timer"
@@ -191,6 +200,16 @@ else
     warn "conda binary not found at $CONDA_BIN"
 fi
 
+# --- 5b. reviewed API uv recovery artifacts ---------------------------------
+log "INFO" "${CYAN}Capturing API uv recovery recipes and verified wheels...${NC}"
+# Use the OS stdlib, not a runtime that may itself need restoration. The helper
+# never imports API/packages, changes source files, or creates source hardlinks.
+if (umask 077; /usr/bin/python3 -I -S -B "$SCRIPT_DIR/capture-api-uv.py" "$SNAP_DIR/uv/api"); then
+    ok "uv/api: committed recipes, receipt, lock and verified wheelhouse"
+else
+    crit "API uv recovery capture failed; inspect uv/api/capture.json and this log"
+fi
+
 # --- 6. apt installed list --------------------------------------------------
 log "INFO" "${CYAN}Capturing apt installed list...${NC}"
 if command -v apt >/dev/null 2>&1; then
@@ -223,9 +242,12 @@ cat > "$SNAP_DIR/manifest.json" <<EOF
 EOF
 
 # Lock down everything we just wrote: dir tree 700/600, no group/other access.
-chown -R root:root "$SNAP_DIR"
-find "$SNAP_DIR" -type d -exec chmod 700 {} +
-find "$SNAP_DIR" -type f -exec chmod 600 {} +
+# uv files are independently created/repaired as 600 by capture-api-uv.py.
+# Exclude that retained subtree even after capture failure: blindly chmod/chown
+# on a pre-existing hardlink could change a source wheel's metadata.
+find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -exec chown -h root:root {} +
+find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -type d -exec chmod 700 {} +
+find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -type f -exec chmod 600 {} +
 
 # Freshness heartbeat for monitoring: a world-readable success stamp OUTSIDE the
 # 700 root-only snapshot dir (it leaks only a timestamp), so the unprivileged
