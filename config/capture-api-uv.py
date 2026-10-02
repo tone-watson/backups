@@ -1,4 +1,4 @@
-"""Back up committed API recovery recipes and verified wheels, without imports."""
+"""Capture API recovery artifacts and the exact private SD environment safely."""
 
 import hashlib
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 API_ROOT = Path("/srv/farm/sys/api")
+SD_ENV_PATH = Path("/srv/farm/private/stable-diffusion/service.env")
 RECIPES = (
     ".python-version", "scripts/runtime.sh", "scripts/runtime.py", "deploy/runtime",
     "deploy/uv", "deploy/systemd", "deploy/uv-preview", "lib/testing",
@@ -144,6 +145,32 @@ def write_bytes(path, data):
             os.unlink(temporary)
 
 
+def capture_sd_environment(destination):
+    """Capture only the reviewed private SD environment; never return its bytes."""
+    directory(destination.parent)
+    directory(destination)
+    write_bytes(destination / "capture.json", b'{"status":"incomplete"}\n')
+    if SD_ENV_PATH.resolve() != SD_ENV_PATH:
+        raise ValueError("Stable Diffusion environment must be a canonical regular file")
+    with regular(SD_ENV_PATH) as source:
+        if stat.S_IMODE(os.fstat(source.fileno()).st_mode) != 0o600:
+            raise ValueError("Stable Diffusion environment must have mode 0600")
+        data = source.read(65537)
+    if not data or len(data) > 65536:
+        raise ValueError("Stable Diffusion environment is empty or unexpectedly large")
+    target = destination / "service.env"
+    # Atomic replacement creates an independent 0600 file, including when an
+    # earlier destination is a hardlink. Source ownership/mode never changes.
+    write_bytes(target, data)
+    with regular(target) as saved:
+        if saved.read(65537) != data:
+            raise ValueError("Private environment copy failed verification")
+    result = {"status": "passed", "source": str(SD_ENV_PATH),
+              "filename": "service.env", "mode": "0600"}
+    write_bytes(destination / "capture.json", (json.dumps(result, indent=2) + "\n").encode())
+    return result
+
+
 def copy_wheel(source, destination, expected_sha, expected_bytes):
     """Verify bytes; reuse only an independent file, never a source hardlink."""
     with regular(source) as input_file:
@@ -239,6 +266,11 @@ def capture(repo, destination):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: capture-api-uv.py SNAPSHOT_DIRECTORY")
-    print(json.dumps(capture(API_ROOT, Path(sys.argv[1]))))
+    if len(sys.argv) == 3 and sys.argv[1] == "--stable-diffusion-env":
+        if os.geteuid() != 0:
+            raise SystemExit("Private environment capture must run as root")
+        print(json.dumps(capture_sd_environment(Path(sys.argv[2]))))
+    elif len(sys.argv) == 2:
+        print(json.dumps(capture(API_ROOT, Path(sys.argv[1]))))
+    else:
+        raise SystemExit("Usage: capture-api-uv.py [--stable-diffusion-env] SNAPSHOT_DIRECTORY")

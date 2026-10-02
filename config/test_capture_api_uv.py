@@ -1,12 +1,14 @@
 """Run only synthetic temporary-file recovery captures; no root or live snapshots."""
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import subprocess
 import tempfile
 import unittest
 import tarfile
+from contextlib import redirect_stdout
 from unittest import mock
 from pathlib import Path
 
@@ -229,6 +231,90 @@ class CaptureTests(unittest.TestCase):
         (wheelhouse / "mode-preserved").symlink_to(source.parent)
         with self.assertRaisesRegex(ValueError, "real backup directory"):
             capture.capture(self.repo, self.destination)
+
+
+class PrivateEnvironmentTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.source = self.root / "source" / "service.env"
+        self.source.parent.mkdir()
+        self.data = b"FARM_SD_API_AUTH=inert-fixture-only\n"
+        self.source.write_bytes(self.data)
+        self.source.chmod(0o600)
+        self.destination = self.root / "backup/private/stable-diffusion"
+        patcher = mock.patch.object(capture, "SD_ENV_PATH", self.source)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_private_copy_is_independent_0600_and_does_not_disclose_contents(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = capture.capture_sd_environment(self.destination)
+        target = self.destination / "service.env"
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(target.read_bytes(), self.data)
+        self.assertNotEqual(target.stat().st_ino, self.source.stat().st_ino)
+        self.assertEqual(target.stat().st_nlink, 1)
+        self.assertEqual(target.stat().st_uid, os.geteuid())
+        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.destination.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(self.destination.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(output.getvalue(), "")
+        self.assertNotIn(self.data.decode().strip(), json.dumps(result))
+        self.assertNotIn("FARM_SD_API_AUTH", (self.destination / "capture.json").read_text())
+
+    def test_private_existing_hardlink_replaced_without_source_changes(self):
+        self.destination.mkdir(parents=True)
+        target = self.destination / "service.env"
+        os.link(self.source, target)
+        old = self.source.stat()
+        capture.capture_sd_environment(self.destination)
+        self.assertNotEqual(target.stat().st_ino, old.st_ino)
+        self.assertEqual(self.source.stat().st_mode, old.st_mode)
+        self.assertEqual(self.source.stat().st_uid, old.st_uid)
+        self.assertEqual(self.source.read_bytes(), self.data)
+
+    def test_private_missing_insecure_or_nonregular_source_leaves_incomplete(self):
+        self.source.unlink()
+        for kind in ("missing", "insecure", "fifo", "empty", "oversized"):
+            if kind == "insecure":
+                self.source.write_bytes(self.data)
+                self.source.chmod(0o644)
+            elif kind == "fifo":
+                os.mkfifo(self.source, 0o600)
+            elif kind in ("empty", "oversized"):
+                self.source.write_bytes(b"" if kind == "empty" else b"x" * 65537)
+                self.source.chmod(0o600)
+            with self.subTest(kind=kind), self.assertRaises((OSError, ValueError)):
+                capture.capture_sd_environment(self.destination)
+            self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+            self.assertFalse((self.destination / "service.env").exists())
+            if self.source.exists():
+                self.source.unlink()
+
+    def test_private_symlink_source_or_directory_rejected(self):
+        actual = self.source.with_name("actual.env")
+        self.source.rename(actual)
+        self.source.symlink_to(actual)
+        with self.assertRaisesRegex(ValueError, "canonical regular"):
+            capture.capture_sd_environment(self.destination)
+        self.source.unlink()
+        actual.rename(self.source)
+        actual_directory = self.source.parent.with_name("actual-directory")
+        self.source.parent.rename(actual_directory)
+        self.source.parent.symlink_to(actual_directory)
+        with self.assertRaisesRegex(ValueError, "canonical regular"):
+            capture.capture_sd_environment(self.destination)
+        self.source.parent.unlink()
+        actual_directory.rename(self.source.parent)
+        self.destination.joinpath("capture.json").unlink()
+        self.destination.rmdir()
+        self.destination.symlink_to(self.source.parent)
+        with self.assertRaisesRegex(ValueError, "real backup directory"):
+            capture.capture_sd_environment(self.destination)
+        self.assertFalse(self.source.parent.joinpath("capture.json").exists())
 
 
 if __name__ == '__main__':

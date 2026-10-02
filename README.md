@@ -87,6 +87,7 @@ A single disk image isn't the right model on Linux (hardware/driver drift, and ~
    legacy Conda rollback export (live API and Distribution use uv),
    API uv recovery recipes and the reviewed wheelhouse, ComfyUI/Stable Diffusion
    runtime recipes and their hash-locked local wheels,
+   the exact private Stable Diffusion service environment,
    `apt list --installed`, and the `/usr/local/bin/farm` symlink into
    `/var/backups/config-snapshot` (root-only `700`; credential `600`). See **`config/README.md`**
    for install + the one-page bootstrap-restore order. (The credential is SENSITIVE —

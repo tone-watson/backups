@@ -20,6 +20,8 @@
 #                   (the recipe, not installed packages; the live API uses uv)
 #   uv/api/       — committed API runtime/build recipes + verified recovery wheels
 #                   (independent copies, retained and hash-checked between runs)
+#   private/stable-diffusion/ — exact service.env used by the uv service override
+#                   *** SENSITIVE *** independent root-only 0600 copy
 #   apt-list.txt  — `apt list --installed` (the package recipe)
 #   farm-symlink.txt, manifest.json — small provenance/metadata
 #
@@ -91,7 +93,7 @@ mkdir -p "$SNAP_DIR"
 chown root:root "$SNAP_DIR"
 chmod 700 "$SNAP_DIR"
 # uv is retained separately; do not recopy unchanged wheels on every run.
-for sub in nginx cloudflared systemd crontab conda; do
+for sub in nginx cloudflared systemd crontab conda private; do
     rm -rf "${SNAP_DIR:?}/$sub"
     mkdir -p "$SNAP_DIR/$sub"
 done
@@ -208,6 +210,15 @@ if (umask 077; /usr/bin/python3 -I -S -B "$SCRIPT_DIR/capture-api-uv.py" "$SNAP_
     ok "uv/api: committed recipes, receipt, lock and verified wheelhouse"
 else
     crit "API uv recovery capture failed; inspect uv/api/capture.json and this log"
+fi
+
+# --- 5c. exact Stable Diffusion private environment --------------------------
+log "INFO" "${CYAN}Capturing Stable Diffusion private service environment...${NC}"
+if (umask 077; /usr/bin/python3 -I -S -B "$SCRIPT_DIR/capture-api-uv.py" \
+        --stable-diffusion-env "$SNAP_DIR/private/stable-diffusion"); then
+    ok "private/stable-diffusion/service.env (root-only 0600)"
+else
+    crit "Stable Diffusion private environment missing or capture failed"
 fi
 
 # --- 6. apt installed list --------------------------------------------------

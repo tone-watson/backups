@@ -14,13 +14,15 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | legacy rollback recipe | `conda env export` for the retained `api` env; live API and Distribution use uv | `conda/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
 | ComfyUI / Stable Diffusion uv recovery | hash-verified local wheels referenced by the committed upstream locks | `uv/api/upstream/` |
+| Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
 
 ## ⚠ Sensitive — handle as a secret
 
-The snapshot contains the **Cloudflare tunnel private credential** (`<UUID>.json`).
-Losing it forces creating a **new** tunnel and re-binding **every** DNS hostname in
+The snapshot contains the **Cloudflare tunnel private credential** (`<UUID>.json`)
+and the **Stable Diffusion API credential** in its service environment file.
+Losing the tunnel credential forces creating a **new** tunnel and re-binding **every** DNS hostname in
 the Cloudflare dashboard — so we keep it, but it must stay secret:
 
 - `/var/backups/config-snapshot` is created **`700` root-only**; every file is `600`,
@@ -94,7 +96,10 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
    directories to `/etc/systemd/system/`. The API and Distribution base units
    still reference Conda; their `90-uv-runtime.conf` drop-ins are required to
    select the restored `.venv` runtimes. Preserve their other drop-ins and private
-   configuration too. Run `sudo systemctl daemon-reload`, inspect the effective
+   configuration too. Before starting Stable Diffusion with its uv override,
+   restore `private/stable-diffusion/service.env` to its exact original path
+   using the private-environment instructions below. Run
+   `sudo systemctl daemon-reload`, inspect the effective
    unit commands, then enable/start only the services and timers confirmed to be
    active in the recovery plan. Captured retired or dormant units are historical
    configuration, not instructions to reactivate them.
@@ -192,3 +197,34 @@ sudo cat /var/backups/config-snapshot/manifest.json
 
 These files remain a local backup until an encrypted off-box transfer is configured
 and verified. This change does not activate or verify such a transfer.
+
+## Stable Diffusion private environment
+
+The prepared uv service override requires
+`/srv/farm/private/stable-diffusion/service.env`. The snapshot captures exactly
+this file using the helper's `--stable-diffusion-env` mode, which requires root.
+It refuses symlink files or ancestor directories, nonregular files, a source
+mode other than 0600, and empty or oversized input. The independent copy is
+created atomically with mode 0600 under a root-only 0700 directory; the source
+contents, ownership and permissions are unchanged. No contents or credential
+hashes are printed or added to the capture manifest.
+
+The `private/` snapshot subtree is recreated each run so a missing file cannot
+leave an old credential appearing current. A missing or invalid source produces
+a DR-critical warning in the top-level manifest and an incomplete
+`private/stable-diffusion/capture.json` when the directory could be created.
+Require that receipt to say `passed` before using this part of a restore.
+No other `/srv/farm/private` files are captured by this addition.
+
+After recovering the snapshot to `/var/backups/config-snapshot`, restore the
+environment before starting `stable-diffusion.service` with the uv override:
+
+```sh
+sudo install -d -m 0700 -o gradywoodruff -g gradywoodruff /srv/farm/private/stable-diffusion
+sudo install -m 0600 -o gradywoodruff -g gradywoodruff /var/backups/config-snapshot/private/stable-diffusion/service.env /srv/farm/private/stable-diffusion/service.env
+```
+
+This restores the required environment file directly; the credential does not
+need to be extracted from the historical base unit. Do not print the file during
+verification. The existing encrypted-off-box requirements apply to this secret
+as well; this change neither starts a snapshot nor configures a transfer.
