@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.4 - 2026-10-02
+### CHANGED:
+- Back up the private Stable Diffusion service environment safely
+
+
 ## v1.1.3 - 2026-10-02
 ### CHANGED:
 - Use uv restore recipes and stop exporting old Distribution Conda
