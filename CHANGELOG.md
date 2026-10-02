@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.2 - 2026-10-02
+### CHANGED:
+- Capture locked ComfyUI and Stable Diffusion recovery artifacts
+
+
 ## v1.1.1 - 2026-10-02
 ### CHANGED:
 - Capture verified API uv recovery artifacts and service drop-ins
