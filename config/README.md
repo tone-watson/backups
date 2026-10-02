@@ -11,7 +11,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | Cloudflare tunnel | `/etc/cloudflared/config.yml` **+ the `<UUID>.json` tunnel credential** | `cloudflared/` |
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
-| python envs (recipe) | `conda env export` for the `api` + `distribution` envs | `conda/` |
+| legacy rollback recipe | `conda env export` for the retained `api` env; live API and Distribution use uv | `conda/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
 | ComfyUI / Stable Diffusion uv recovery | hash-verified local wheels referenced by the committed upstream locks | `uv/api/upstream/` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
@@ -69,10 +69,19 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
    the `gradywoodruff` user (uid/gid as before — DB/file ownership depends on it).
    Reinstall packages from the recipe: review `apt-list.txt` and
    `sudo apt install <the farm-relevant ones>` (it's a list, not a lockfile).
-2. **Repos + conda.** Re-clone the component repos under `/srv/farm` (see
-   `/srv/farm/CLAUDE.md` for the layout). Install miniconda to `/srv/farm/miniconda3`
-   (and the `~/.../miniconda3 -> /srv/farm/miniconda3` symlink). Re-create the envs
-   from the recipes: `conda env create -f conda/api.yml` and `conda/distribution.yml`.
+2. **Repos + runtimes.** Re-clone the component repos under `/srv/farm` (see
+   `/srv/farm/CLAUDE.md` for the layout), retaining the recorded release revisions.
+   Restore uv and the specified managed Python installations. Restore the API's
+   reviewed artifact bundle from `uv/api/` as described below, then, as the Farm
+   owner in `/srv/farm/sys/api`, run `sh scripts/runtime.sh sync` and
+   `sh scripts/runtime.sh check`. For Distribution, use its committed
+   `pyproject.toml`, `uv.lock`, `.python-version` and `scripts/runtime.sh`: as the
+   owner in `/srv/farm/sys/distribution`, run `sh scripts/runtime.sh sync` and
+   `sh scripts/runtime.sh check`. This selects managed Python 3.11.13 and creates
+   the project `.venv`. Keep services stopped while restoring runtimes.
+   `conda/api.yml` is only a retained legacy rollback recipe; it is not the live
+   API runtime. Distribution's old Conda environment is no longer exported or
+   required for restore.
 3. **Data.** Restore the irreplaceable bytes from the off-box copies *before*
    starting services: `/srv/farm/production` (Dropbox) and `/data/databases` via
    `sys/dbops` restore. Fix ownership (e.g. `pipeline.db` is `gradywoodruff:www-data`).
@@ -81,10 +90,14 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
 5. **Cloudflare tunnel.** Copy `cloudflared/config.yml` and `cloudflared/<UUID>.json`
    to `/etc/cloudflared/` (credential `chmod 600`, dir root-only). This **reuses the
    existing tunnel** — no DNS re-binding needed. Enable `cloudflared`.
-6. **systemd units.** Copy the captured base units and `*.service.d` / `*.timer.d` directories to `/etc/systemd/system/`,
-   `sudo systemctl daemon-reload`, then `enable --now` the timers/services you need
-   (farm-api, farm-manager, websocket, comfyui-worker, flamenco-manager,
-   the dbops + backup timers, and this `farm-config-snapshot.timer`).
+6. **systemd units.** Copy the captured base units and `*.service.d` / `*.timer.d`
+   directories to `/etc/systemd/system/`. The API and Distribution base units
+   still reference Conda; their `90-uv-runtime.conf` drop-ins are required to
+   select the restored `.venv` runtimes. Preserve their other drop-ins and private
+   configuration too. Run `sudo systemctl daemon-reload`, inspect the effective
+   unit commands, then enable/start only the services and timers confirmed to be
+   active in the recovery plan. Captured retired or dormant units are historical
+   configuration, not instructions to reactivate them.
 7. **crontab.** Reinstall the owner's jobs: `crontab -u gradywoodruff crontab/gradywoodruff.cron`.
 8. **Verify.** `systemctl --failed`, `nginx -t`, hit the public hostnames, run
    `sys/dbops/scripts/health-check.sh`, and take a fresh config snapshot.
@@ -113,7 +126,8 @@ independent destination files. Corrupt copies are replaced. No hardlinks to the
 source are created, and the retained uv subtree is excluded from the shell's
 recursive permission changes. The helper creates directories/files with 700/600
 permissions and replaces a linked destination before changing file permissions.
-Conda exports remain as rollback recipes.
+The retained API Conda export remains a legacy rollback recipe. Distribution's
+old Conda environment is excluded from the export list.
 
 The same capture preserves the local wheels required by the committed ComfyUI
 and Stable Diffusion locks. These include recovered native extensions that cannot

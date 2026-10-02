@@ -5,8 +5,8 @@
 # WHAT this is for (DR-1): off-box backup already covers the irreplaceable BYTES
 # (production/ renders+blends and the DB snapshots). It does NOT cover the config
 # that makes THIS box this box. If the disk dies, those bits live only in /etc and
-# in conda. This script snapshots them into a single dir so the off-box push can
-# carry them too, and so a rebuild is a documented checklist instead of archaeology.
+# in runtime recipes. This script snapshots them into a single dir so the off-box
+# push can carry them too, making a rebuild a checklist instead of archaeology.
 #
 # WHAT it captures (into $SNAP_DIR):
 #   nginx/        — /etc/nginx (sites-available + sites-enabled + nginx.conf + conf.d)
@@ -16,8 +16,8 @@
 #   systemd/      — the farm-relevant, locally-defined /etc/systemd/system units
 #                   (*.service / *.timer that are real files, not vendor symlinks)
 #   crontab/      — `crontab -l` for the owner (and root), the recipe not the runtime
-#   conda/        — `conda env export` for the api + distribution envs (the recipe,
-#                   NOT the ~235 GB of packages)
+#   conda/        — `conda env export` for the retained legacy api rollback env
+#                   (the recipe, not installed packages; the live API uses uv)
 #   uv/api/       — committed API runtime/build recipes + verified recovery wheels
 #                   (independent copies, retained and hash-checked between runs)
 #   apt-list.txt  — `apt list --installed` (the package recipe)
@@ -50,7 +50,7 @@ LOG_FILE="/var/log/farm-config-snapshot.log"
 STAMP_FILE="/var/log/farm-config-snapshot.stamp"     # world-readable success heartbeat for health-check
 OWNER_USER="gradywoodruff"
 CONDA_BIN="/srv/farm/miniconda3/bin/conda"            # /home/.../miniconda3 symlinks here
-CONDA_ENVS=("api" "distribution")                     # the box-critical envs
+CONDA_ENVS=("api")                                  # retained legacy rollback only
 
 NGINX_SRC="/etc/nginx"
 CLOUDFLARED_SRC="/etc/cloudflared"
@@ -179,8 +179,8 @@ else
     warn "crontab command not available"
 fi
 
-# --- 5. conda env exports (api + distribution) ------------------------------
-log "INFO" "${CYAN}Exporting conda envs (recipe, not packages)...${NC}"
+# --- 5. retained legacy Conda rollback recipe -------------------------------
+log "INFO" "${CYAN}Exporting legacy Conda rollback recipe (not live runtimes)...${NC}"
 if [ -x "$CONDA_BIN" ]; then
     for env in "${CONDA_ENVS[@]}"; do
         prefix="/srv/farm/miniconda3/envs/$env"
