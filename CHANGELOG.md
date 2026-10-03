@@ -1,6 +1,12 @@
 # Changelog
 
 
+## v1.1.9 - 2026-10-03
+### CHANGED:
+- Document owner-requested Kitsu retirement and snapshot refresh
+- Withdraw Kitsu migration backup capture for application retirement
+
+
 ## v1.1.8 - 2026-10-03
 ### CHANGED:
 - Capture staged Kitsu runtime wheels for recovery
