@@ -18,6 +18,8 @@ ADDITIONAL_MANAGED_PYTHON_ROOT = Path("/srv/farm/.uv/migrations/2026-10-03-manag
 PYTHON_31014_OWNERSHIP_POLICY_FILENAME = "python_31014_host_ownership_policy.json"
 PYTHON_31014_OWNERSHIP_POLICY_SHA256 = "d4b0636012ff5af87edb7adcbfff6e273b9dec4b14ce1ec4b99a7d6cf852e5ef"
 ADDITIONAL_MANAGED_PYTHON_PROFILES = {
+    "3.9.19": {"build": "20240814",
+               "receipt_sha256": "da96e37f8107b863886040350a3f82e2fbcb24741a4e295b658f626f6dfbd5a3"},
     "3.10.14": {"build": "20240814",
                 "receipt_sha256": "81f40a19834ddf4f8410a1d3d1e1d38dc4b93ea86e12b92a5a6ea9612a85d4bf"},
     "3.10.16": {"build": "20250317",
@@ -48,6 +50,7 @@ UPSTREAM_WHEEL_ROOTS = {
     "hardware": Path("/srv/farm/.uv/migrations/2026-10-03-hardware/wheels"),
     "noise-agent": Path("/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels"),
     "instantmesh": Path("/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels"),
+    "riffusion": Path("/srv/farm/.uv/migrations/2026-10-03-riffusion/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
@@ -60,6 +63,7 @@ UPSTREAM_LOCKS = {
     "hardware": ("requirements.lock",),
     "noise-agent": ("requirements.lock",),
     "instantmesh": ("requirements.lock",),
+    "riffusion": ("requirements.lock",),
 }
 
 
@@ -353,7 +357,7 @@ def capture_additional_managed_python_profile(version, profile, destination):
 
 
 def capture_additional_managed_python(destination):
-    """Retain only the five reviewed version/build bundles under distinct destinations."""
+    """Retain only the six reviewed version/build bundles under distinct destinations."""
     directory(destination)
     results = {}
     for version, profile in ADDITIONAL_MANAGED_PYTHON_PROFILES.items():

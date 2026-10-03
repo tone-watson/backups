@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait / Flood Map / TikTok / Hardware / Noise Agent uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait / Flood Map / TikTok / Hardware / Noise Agent / InstantMesh / Riffusion uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -120,8 +120,8 @@ helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
 Uncommitted API edits are deliberately excluded. Commit and release the API's
-`noise-agent` and `instantmesh` recipes before releasing this backup update or
-running its capture;
+`riffusion` recipe before releasing this backup update or running its capture;
+the published `noise-agent` and `instantmesh` recipes must remain committed, and
 the existing `graphiti-root` and `graphiti-mcp` recipes must also remain committed.
 A missing committed profile lock fails capture; a dirty working tree is not a
 substitute for the recorded API revision.
@@ -142,7 +142,7 @@ overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
 Stable Diffusion, Graphiti, ACE-Step, LivePortrait, Flood Map, TikTok Scraper,
-Hardware, Noise Agent and InstantMesh locks. These
+Hardware, Noise Agent, InstantMesh and Riffusion locks. These
 include recovered native extensions, preserved editable-installation wheels
 and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
@@ -155,8 +155,9 @@ accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-hardware/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-riffusion/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
@@ -246,7 +247,7 @@ The existing snapshot command still exits zero for warnings; inspect its report.
 The snapshot includes the accepted API wheel set and locked local upstream
 wheels, not installed environments,
 model weights, or the uv executable. Separate exact installed-interpreter archives
-cover Python 3.9.18, 3.10.14, 3.10.16, 3.10.18, 3.10.19 and 3.12.11 as described
+cover Python 3.9.18, 3.9.19, 3.10.14, 3.10.16, 3.10.18, 3.10.19 and 3.12.11 as described
 below. Other managed versions and uv 0.8.19 still require separate recovery at
 the recorded paths, along with OS libraries/drivers, API source and application
 data. Extract the archived recipes into a separate review directory, compare them
@@ -460,9 +461,29 @@ and verify its receipt. Fixture/static artifact checks do not run that snapshot
 or establish off-host recovery. No service restart or systemd reload is required.
 
 
+## Riffusion recovery
+
+Riffusion's capture profile selects only the local wheels named by the committed
+`deploy/upstream/riffusion/requirements.lock` for its exact 147-package baseline.
+The reviewed set contains 147 artifacts totaling **3,092,422,808 bytes**; capture
+verifies every selected wheel against the committed lock. Sources must stay inside
+`/srv/farm/.uv/migrations/2026-10-03-riffusion/wheels`;
+verified independent copies go beneath `uv/api/upstream/riffusion/wheelhouse/`,
+with nested paths preserved and unselected artifacts excluded. No wheels are
+downloaded, rebuilt, installed or imported during capture.
+
+The separate managed Python 3.9.19 build 20240814 archive below provides the
+interpreter bytes. Package wheels and interpreter recovery do not capture the
+modified upstream checkout, local models/assets, OS libraries or media tools.
+They do not establish GPU generation, application adoption or full workflow
+recovery. Preserve the original Conda environment pending its own acceptance and
+consumer audit. Commit and release the API recipe before this Backups update;
+a fresh owner-run root snapshot and its receipt must then be verified.
+
+
 ## Additional exact managed Python recovery archives
 
-Five additional accepted interpreter bundles are retained separately from the
+Six additional accepted interpreter bundles are retained separately from the
 application wheelhouses. Their source root is
 `/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/<version>/`;
 the snapshot destination is
@@ -470,6 +491,7 @@ the snapshot destination is
 
 | Python | Build | Compressed bytes | Accepted receipt |
 | --- | --- | ---: | --- |
+| 3.9.19 | 20240814 | 19,951,674 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.9.19/receipt.json) |
 | 3.10.14 | 20240814 | 21,386,053 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.10.14/receipt.json) |
 | 3.10.16 | 20250317 | 20,733,453 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.10.16/receipt.json) |
 | 3.10.18 | 20250918 | 28,738,871 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.10.18/receipt.json) |
@@ -485,12 +507,17 @@ changed receipts are refused. Copies are independent mode-0600 files beneath
 mode-0700 directories and can be reused after verification. Capture does not
 rearchive, extract, execute or modify a live interpreter. The original 3.9.18
 capture function, destination and `managed_python` result remain unchanged;
-these five entries appear in a separate `additional_managed_python` mapping.
+these six entries appear in a separate `additional_managed_python` mapping.
 
-All five bundles passed local scratch extraction, full manifest comparison and
+All six bundles passed local scratch extraction, full manifest comparison and
 12 standard-library import checks with SSL, SQLite, compression and hashing
 fixtures in a network/GPU-free namespace. Original artifacts and restored
-prefixes remained unchanged. Four versions retained exact numeric ownership.
+prefixes remained unchanged. Five versions retained exact numeric ownership.
+Python **3.9.19** passed all 5,363 manifest entries and 12 standard-library
+imports with exact numeric ownership. Its
+[restore report](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/restore-validation-3.9.19-g9tb_75a/restore-validation.json)
+has SHA-256 `f04f008c053c1195c0633beb48abd94b8bf2f88e0377a825c258a2194471639c`.
+
 Python **3.10.14** has a qualified result: its archive preserves host UID 1000
 and GID 33 for **157 bytecode files (0644) and 11 cache directories (0755)**,
 but the unprivileged scratch restore used GID 1000 for precisely those 168
