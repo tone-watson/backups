@@ -11,7 +11,6 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | Cloudflare tunnel | `/etc/cloudflared/config.yml` **+ the `<UUID>.json` tunnel credential** | `cloudflared/` |
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
-| legacy rollback recipe | `conda env export` for the retained `api` env; live API and Distribution use uv | `conda/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
 | ComfyUI / Stable Diffusion uv recovery | hash-verified local wheels referenced by the committed upstream locks | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
@@ -81,9 +80,8 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
    owner in `/srv/farm/sys/distribution`, run `sh scripts/runtime.sh sync` and
    `sh scripts/runtime.sh check`. This selects managed Python 3.11.13 and creates
    the project `.venv`. Keep services stopped while restoring runtimes.
-   `conda/api.yml` is only a retained legacy rollback recipe; it is not the live
-   API runtime. Distribution's old Conda environment is no longer exported or
-   required for restore.
+   API and Distribution restore from their reviewed uv recipes; their retired
+   Conda environments are neither exported nor required for recovery.
 3. **Data.** Restore the irreplaceable bytes from the off-box copies *before*
    starting services: `/srv/farm/production` (Dropbox) and `/data/databases` via
    `sys/dbops` restore. Fix ownership (e.g. `pipeline.db` is `gradywoodruff:www-data`).
@@ -93,8 +91,9 @@ Restore in dependency order. The snapshot is at `<SNAP>` (the recovered
    to `/etc/cloudflared/` (credential `chmod 600`, dir root-only). This **reuses the
    existing tunnel** — no DNS re-binding needed. Enable `cloudflared`.
 6. **systemd units.** Copy the captured base units and `*.service.d` / `*.timer.d`
-   directories to `/etc/systemd/system/`. The API and Distribution base units
-   still reference Conda; their `90-uv-runtime.conf` drop-ins are required to
+   directories to `/etc/systemd/system/`. The API, Distribution, ComfyUI and
+   Stable Diffusion base units still reference Conda; their captured
+   `90-uv-runtime.conf` drop-ins are required to
    select the restored `.venv` runtimes. Preserve their other drop-ins and private
    configuration too. Before starting Stable Diffusion with its uv override,
    restore `private/stable-diffusion/service.env` to its exact original path
@@ -131,8 +130,10 @@ independent destination files. Corrupt copies are replaced. No hardlinks to the
 source are created, and the retained uv subtree is excluded from the shell's
 recursive permission changes. The helper creates directories/files with 700/600
 permissions and replaces a linked destination before changing file permissions.
-The retained API Conda export remains a legacy rollback recipe. Distribution's
-old Conda environment is excluded from the export list.
+Conda exports are no longer collected after retirement of the API rollback
+environment. Each run clears the obsolete `conda/` snapshot subtree so an old
+export cannot appear current. The reviewed uv artifacts and installed service
+overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI
 and Stable Diffusion locks. These include recovered native extensions that cannot
@@ -176,8 +177,8 @@ payload checks, lock, validation helpers and deployment guide. Install that
 profile's specified managed Python and uv prerequisites, then run
 `sh scripts/upstream_runtime.sh <profile> sync` and `check` from the restored API
 checkout with the application stopped. Review the captured profile deployment
-guide before starting services. Backup capture does not imply those staged
-runtime migrations have passed live GPU acceptance or been deployed.
+guide before starting services. Backup capture alone does not establish live GPU
+acceptance; retain the deployment guide's separate acceptance records.
 
 Validation of this change uses temporary fixture files, not the root snapshot:
 
@@ -200,7 +201,7 @@ and verified. This change does not activate or verify such a transfer.
 
 ## Stable Diffusion private environment
 
-The prepared uv service override requires
+The installed uv service override requires
 `/srv/farm/private/stable-diffusion/service.env`. The snapshot captures exactly
 this file using the helper's `--stable-diffusion-env` mode, which requires root.
 It refuses symlink files or ancestor directories, nonregular files, a source

@@ -16,8 +16,6 @@
 #   systemd/      — the farm-relevant, locally-defined /etc/systemd/system units
 #                   (*.service / *.timer that are real files, not vendor symlinks)
 #   crontab/      — `crontab -l` for the owner (and root), the recipe not the runtime
-#   conda/        — `conda env export` for the retained legacy api rollback env
-#                   (the recipe, not installed packages; the live API uses uv)
 #   uv/api/       — committed API runtime/build recipes + verified recovery wheels
 #                   (independent copies, retained and hash-checked between runs)
 #   private/stable-diffusion/ — exact service.env used by the uv service override
@@ -33,8 +31,8 @@
 # *** MUST RUN AS ROOT ***  /etc/cloudflared is root-only (0700). Run via the
 # systemd unit (which runs as root) or `sudo`. See ../systemd/farm-config-snapshot.*
 #
-# This script is READ-ONLY against the system: it only reads /etc + exports conda +
-# lists apt, and writes solely under $SNAP_DIR. It changes nothing it captures.
+# This script is READ-ONLY against the system: it reads /etc and reviewed uv
+# artifacts, lists apt, and writes solely under $SNAP_DIR. It changes nothing it captures.
 
 set -uo pipefail
 
@@ -51,8 +49,6 @@ SNAP_DIR="/var/backups/config-snapshot"
 LOG_FILE="/var/log/farm-config-snapshot.log"
 STAMP_FILE="/var/log/farm-config-snapshot.stamp"     # world-readable success heartbeat for health-check
 OWNER_USER="gradywoodruff"
-CONDA_BIN="/srv/farm/miniconda3/bin/conda"            # /home/.../miniconda3 symlinks here
-CONDA_ENVS=("api")                                  # retained legacy rollback only
 
 NGINX_SRC="/etc/nginx"
 CLOUDFLARED_SRC="/etc/cloudflared"
@@ -93,6 +89,7 @@ mkdir -p "$SNAP_DIR"
 chown root:root "$SNAP_DIR"
 chmod 700 "$SNAP_DIR"
 # uv is retained separately; do not recopy unchanged wheels on every run.
+# Clear the obsolete conda snapshot subtree too; retired runtimes are not exported.
 for sub in nginx cloudflared systemd crontab conda private; do
     rm -rf "${SNAP_DIR:?}/$sub"
     mkdir -p "$SNAP_DIR/$sub"
@@ -181,28 +178,7 @@ else
     warn "crontab command not available"
 fi
 
-# --- 5. retained legacy Conda rollback recipe -------------------------------
-log "INFO" "${CYAN}Exporting legacy Conda rollback recipe (not live runtimes)...${NC}"
-if [ -x "$CONDA_BIN" ]; then
-    for env in "${CONDA_ENVS[@]}"; do
-        prefix="/srv/farm/miniconda3/envs/$env"
-        if [ -d "$prefix" ]; then
-            if "$CONDA_BIN" env export -p "$prefix" > "$SNAP_DIR/conda/${env}.yml" 2>/dev/null \
-                && [ -s "$SNAP_DIR/conda/${env}.yml" ]; then
-                ok "conda/${env}.yml"
-            else
-                warn "conda export failed for env '$env'"
-                rm -f "$SNAP_DIR/conda/${env}.yml"
-            fi
-        else
-            warn "conda env '$env' not found at $prefix"
-        fi
-    done
-else
-    warn "conda binary not found at $CONDA_BIN"
-fi
-
-# --- 5b. reviewed API uv recovery artifacts ---------------------------------
+# --- 5. reviewed API uv recovery artifacts ---------------------------------
 log "INFO" "${CYAN}Capturing API uv recovery recipes and verified wheels...${NC}"
 # Use the OS stdlib, not a runtime that may itself need restoration. The helper
 # never imports API/packages, changes source files, or creates source hardlinks.
@@ -212,7 +188,7 @@ else
     crit "API uv recovery capture failed; inspect uv/api/capture.json and this log"
 fi
 
-# --- 5c. exact Stable Diffusion private environment --------------------------
+# --- 5b. exact Stable Diffusion private environment --------------------------
 log "INFO" "${CYAN}Capturing Stable Diffusion private service environment...${NC}"
 if (umask 077; /usr/bin/python3 -I -S -B "$SCRIPT_DIR/capture-api-uv.py" \
         --stable-diffusion-env "$SNAP_DIR/private/stable-diffusion"); then
@@ -276,7 +252,7 @@ else
     log "INFO" "${YELLOW}=== Config snapshot complete with ${#WARNINGS[@]} warning(s) ===${NC}"
     for w in "${WARNINGS[@]}"; do log "WARN" "  • $w"; done
     log "INFO" "Snapshot: $SNAP_DIR (root-only 700; credential 600)"
-    # Warnings are non-fatal (e.g. an env not present on this box). Exit 0 so the
+    # Warnings are non-fatal (e.g. an optional capture missing). Exit 0 so the
     # timer doesn't mark itself failed for an expected-missing optional capture.
     exit 0
 fi

@@ -83,9 +83,8 @@ A single disk image isn't the right model on Linux (hardware/driver drift, and ~
 2. **Config-as-code** — a snapshot script that captures what makes this box *this box*.
    **Implemented:** `config/snapshot.sh` + `systemd/farm-config-snapshot.{service,timer}`
    write `/etc/nginx`, `/etc/cloudflared/config.yml` **+ the tunnel credential**, the
-   farm `/etc/systemd/system` units and drop-ins, `crontab -l`, the retained API
-   legacy Conda rollback export (live API and Distribution use uv),
-   API uv recovery recipes and the reviewed wheelhouse, ComfyUI/Stable Diffusion
+   farm `/etc/systemd/system` units and drop-ins, `crontab -l`, API uv recovery
+   recipes and the reviewed wheelhouse, ComfyUI/Stable Diffusion
    runtime recipes and their hash-locked local wheels,
    the exact private Stable Diffusion service environment,
    `apt list --installed`, and the `/usr/local/bin/farm` symlink into
