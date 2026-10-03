@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.12 - 2026-10-03
+### CHANGED:
+- Capture hardware uv recovery wheels from the committed API recipe
+
+
 ## v1.1.11 - 2026-10-03
 ### CHANGED:
 - Capture pinned TikTok runtime recovery artifacts
