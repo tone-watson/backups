@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.17 - 2026-10-03
+### CHANGED:
+- Preserve RAVE offline runtime artifacts in config backups
+
+
 ## v1.1.16 - 2026-10-03
 ### CHANGED:
 - Capture Riffusion wheels and Python 3.9.19 recovery
