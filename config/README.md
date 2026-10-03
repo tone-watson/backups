@@ -120,7 +120,7 @@ helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
 Uncommitted API edits are deliberately excluded. Commit and release the API's
-`ace-step` recipe before releasing this backup update or running its capture;
+`tiktok-scraper` recipe before releasing this backup update or running its capture;
 the existing `graphiti-root` and `graphiti-mcp` recipes must also remain committed.
 A missing committed profile lock fails capture; a dirty working tree is not a
 substitute for the recorded API revision.
@@ -140,7 +140,7 @@ export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
-Stable Diffusion, Graphiti, ACE-Step, LivePortrait and Flood Map locks. These
+Stable Diffusion, Graphiti, ACE-Step, LivePortrait, Flood Map and TikTok Scraper locks. These
 include recovered native extensions, preserved editable-installation wheels
 and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
@@ -149,8 +149,9 @@ accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
@@ -370,3 +371,7 @@ Restore first into a private review directory, verify its manifest and perform
 contained interpreter validation before considering any final-path recovery.
 Do not unpack over an active runtime. No automatic extraction or runtime
 replacement is part of snapshot capture.
+
+### TikTok Scraper recovery
+
+Capture retains the 13 artifacts in the committed `deploy/upstream/tiktok-scraper/requirements.lock`, including the recovered Playwright driver payload, under `uv/api/upstream/tiktok-scraper/wheelhouse/`. Restore the source separately and follow the API-owned deployment guide. This wheelhouse does not contain Chromium or establish browser/TikTok acceptance; retain the original Conda runtime until those checks pass.

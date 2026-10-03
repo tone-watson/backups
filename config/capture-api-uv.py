@@ -29,6 +29,7 @@ UPSTREAM_WHEEL_ROOTS = {
     "ace-step": Path("/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels"),
     "live-portrait": Path("/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels"),
     "flood-map": Path("/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels"),
+    "tiktok-scraper": Path("/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
@@ -37,6 +38,7 @@ UPSTREAM_LOCKS = {
     "ace-step": ("requirements.lock",),
     "live-portrait": ("requirements.lock",),
     "flood-map": ("requirements.lock",),
+    "tiktok-scraper": ("requirements.lock",),
 }
 
 
