@@ -1,6 +1,12 @@
 # Changelog
 
 
+## v1.1.10 - 2026-10-03
+### CHANGED:
+- Capture Flood Map wheels and document Python restore validation
+- Capture LivePortrait wheels and pinned Python recovery archive
+
+
 ## v1.1.9 - 2026-10-03
 ### CHANGED:
 - Document owner-requested Kitsu retirement and snapshot refresh
