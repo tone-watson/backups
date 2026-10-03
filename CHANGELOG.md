@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.11 - 2026-10-03
+### CHANGED:
+- Capture pinned TikTok runtime recovery artifacts
+
+
 ## v1.1.10 - 2026-10-03
 ### CHANGED:
 - Capture Flood Map wheels and document Python restore validation
