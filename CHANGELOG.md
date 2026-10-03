@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.16 - 2026-10-03
+### CHANGED:
+- Capture Riffusion wheels and Python 3.9.19 recovery
+
+
 ## v1.1.15 - 2026-10-03
 ### CHANGED:
 - Capture five additional managed Python recovery bundles
