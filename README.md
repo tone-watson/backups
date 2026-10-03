@@ -84,9 +84,9 @@ A single disk image isn't the right model on Linux (hardware/driver drift, and ~
    **Implemented:** `config/snapshot.sh` + `systemd/farm-config-snapshot.{service,timer}`
    write `/etc/nginx`, `/etc/cloudflared/config.yml` **+ the tunnel credential**, the
    farm `/etc/systemd/system` units and drop-ins, `crontab -l`, API uv recovery
-   recipes and the reviewed wheelhouse, ComfyUI/Stable Diffusion/Graphiti/ACE-Step
+   recipes and the reviewed wheelhouse, ComfyUI/Stable Diffusion/Graphiti/ACE-Step/Kitsu
    runtime recipes and their hash-locked local wheels (Graphiti's two profiles
-   share one verified 55-wheel bundle; ACE-Step adds 164 wheels),
+   share one verified 55-wheel bundle; ACE-Step adds 164 wheels and Kitsu 132),
    the exact private Stable Diffusion service environment,
    `apt list --installed`, and the `/usr/local/bin/farm` symlink into
    `/var/backups/config-snapshot` (root-only `700`; credential `600`). See **`config/README.md`**
