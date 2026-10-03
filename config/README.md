@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait / Flood Map uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -140,23 +140,26 @@ export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
-Stable Diffusion, Graphiti, ACE-Step and LivePortrait locks. These include recovered native
-extensions, preserved editable-installation wheels and ACE-Step's retained
+Stable Diffusion, Graphiti, ACE-Step, LivePortrait and Flood Map locks. These
+include recovered native extensions, preserved editable-installation wheels
+and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
 accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels`,
 `/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
 Nothing is downloaded, installed or imported.
 
 Copies live under `uv/api/upstream/<profile>/wheelhouse/`, preserving nested paths
-such as ComfyUI's `mode-preserved/` and ACE-Step/LivePortrait `retained/`. `capture.json`
-records each original path, backup-relative filename, hash, byte count and
+such as ComfyUI's `mode-preserved/` and ACE-Step/LivePortrait/Flood Map
+`retained/`. `capture.json` records each original path, backup-relative
+filename, hash, byte count and
 referring lock, plus the lock
 hashes and copied/reused counts. Only lock-referenced wheels are added; older
 upstream copies may remain but are not part of the current recorded recovery set.
@@ -204,6 +207,25 @@ configuration, model weights and inputs separately. This package capture does
 not establish source, model, Python-interpreter or live GPU recovery. The
 runtime belongs at `/srv/farm/code/live-portrait/.venv`; follow the committed
 deployment guide's validation and acceptance requirements before launching it.
+
+Flood Map adds **29 unique wheels**, approximately 114.9 MiB, from the
+committed `deploy/upstream/flood-map/requirements.lock`, under
+`uv/api/upstream/flood-map/wheelhouse/`. Capture preserves the exact
+`retained/pip-23.3.1-py3-none-any.whl` and
+`retained/setuptools-68.2.2-py3-none-any.whl` paths selected by that lock;
+the artifact inventory is
+`/srv/farm/.uv/migrations/2026-10-03-flood-map/wheel-manifest-preserved.json`.
+The API recipe and lock must be committed before this capture extension
+runs. Its package installation is offline after restoring the pinned
+Python 3.9.18 and uv prerequisites. The unversioned
+`/srv/farm/code/flood-map` source, input media and output files require
+separate recovery; this wheel capture does not preserve them. System
+FFmpeg and its linked OS libraries are also separate prerequisites.
+Synthetic isolated CPU/audio parity has passed at the final project runtime;
+real-media acceptance remains separate. The script currently names a missing
+MP3 directory, `/srv/farm/audio/assets/scrapes/tiktok/2024-01-18`; restore or
+review those inputs before considering a normal manual run. Follow the
+committed deployment guide for current runtime and acceptance status.
 
 For ComfyUI and Stable Diffusion, published package-index and HTTPS artifacts remain
 represented by committed hash locks; their wheels are not duplicated by this
@@ -324,10 +346,26 @@ unapproved or symlinked artifacts leave capture status incomplete.
 The accepted manifest records all 5,636 entries: 4,355 regular files totaling
 85,333,567 bytes, 234 directories and 1,047 internal symlinks. The private
 archive was checked against those exact bytes and metadata, with unchanged
-before/after source manifests. This preserves the installed interpreter; it
-does not claim a matching upstream download or prove extraction/runtime
-recovery. It does not include uv, OS libraries/drivers, application code,
-configuration or models. Keep the receipt's limitations with the archive.
+before/after source manifests. This original capture preserves the installed
+interpreter without claiming independent upstream binary provenance.
+
+A subsequent
+[qualified restore validation](/srv/farm/.uv/migrations/2026-10-03-managed-python-recovery/restore-validation-bbffvhs4/restore-validation.json),
+SHA-256 `42e6e73a653db98f0ad8ada2a9086f2f76d6fffd5442f263b587714d16843879`,
+extracted all 5,636 entries into private scratch and verified their contents,
+links, modes, owner UID and nanosecond timestamps. Twelve standard-library
+imports plus SSL, SQLite, compression and hashing fixtures passed in a
+network/GPU-free namespace using the restored interpreter and recorded system
+library providers. The original pinned receipt, archive and manifest were
+unchanged; this separate local proof is not an added snapshot input.
+
+The unprivileged scratch restore used group 1000 for 21 bytecode files and two
+cache directories whose original archive group is 33. Those 23 differences are
+explicitly recorded. Exact numeric group restoration requires root and remains
+untested, as do root/multi-user API/uWSGI permissions and full application
+recovery. The archive does not include uv, OS libraries/drivers, application
+code, configuration or models. Keep both the original capture limitations and
+this qualified restore proof with the recovery plan.
 Restore first into a private review directory, verify its manifest and perform
 contained interpreter validation before considering any final-path recovery.
 Do not unpack over an active runtime. No automatic extraction or runtime

@@ -60,7 +60,7 @@ class CaptureTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.upstream_wheels = {}
         for profile, wheel_root in self.upstream_roots.items():
-            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/"}.get(profile, "")
+            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/", "flood-map": "retained/"}.get(profile, "")
             relative = prefix + "example-2.0-py3-none-any.whl"
             wheel = wheel_root / relative
             wheel.parent.mkdir(parents=True)
@@ -165,6 +165,7 @@ class CaptureTests(unittest.TestCase):
         with tarfile.open(self.destination / "api-recipes.tar") as archive:
             self.assertIn("scripts/upstream_runtime.py", archive.getnames())
             self.assertIn("deploy/upstream/comfyui/requirements.lock", archive.getnames())
+            self.assertIn("deploy/upstream/flood-map/requirements.lock", archive.getnames())
         for profile, source in self.upstream_wheels.items():
             item = result["upstream"][profile]
             self.assertEqual(item["artifact_count"], 1)
