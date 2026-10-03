@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.8 - 2026-10-03
+### CHANGED:
+- Capture staged Kitsu runtime wheels for recovery
+
+
 ## v1.1.7 - 2026-10-03
 ### CHANGED:
 - Preserve ACE-Step runtime wheels in config snapshots
