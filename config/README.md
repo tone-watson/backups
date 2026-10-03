@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion / Graphiti / ACE-Step uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -140,21 +140,22 @@ export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
-Stable Diffusion, Graphiti and ACE-Step locks. These include recovered native
+Stable Diffusion, Graphiti, ACE-Step and LivePortrait locks. These include recovered native
 extensions, preserved editable-installation wheels and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
 accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels`,
 `/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
 Nothing is downloaded, installed or imported.
 
 Copies live under `uv/api/upstream/<profile>/wheelhouse/`, preserving nested paths
-such as ComfyUI's `mode-preserved/` and ACE-Step's `retained/`. `capture.json`
+such as ComfyUI's `mode-preserved/` and ACE-Step/LivePortrait `retained/`. `capture.json`
 records each original path, backup-relative filename, hash, byte count and
 referring lock, plus the lock
 hashes and copied/reused counts. Only lock-referenced wheels are added; older
@@ -188,7 +189,23 @@ reviewed local customizations, private configuration and model weights require
 separate recovery. This wheel capture does not preserve or prove recovery of
 those files, and does not read application environments or run model code.
 
-For the image services, published package-index and HTTPS artifacts remain
+LivePortrait adds **122 unique wheels**, approximately 3.19 GiB, from the
+committed `deploy/upstream/live-portrait/requirements.lock`, under
+`uv/api/upstream/live-portrait/wheelhouse/`. Capture retains the selected
+`retained/pip-24.0-py3-none-any.whl` and
+`retained/setuptools-69.5.1-py3-none-any.whl` paths, without substituting the
+original registry wheels. Selection follows the committed lock's exact paths
+and hashes; the prepared artifact inventory is
+`/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheel-manifest-preserved.json`.
+The LivePortrait recipe and lock must be committed in the API before deploying
+this capture extension; an uncommitted prepared lock is deliberately rejected.
+Restore `/srv/farm/code/live-portrait`, its matching local customizations,
+configuration, model weights and inputs separately. This package capture does
+not establish source, model, Python-interpreter or live GPU recovery. The
+runtime belongs at `/srv/farm/code/live-portrait/.venv`; follow the committed
+deployment guide's validation and acceptance requirements before launching it.
+
+For ComfyUI and Stable Diffusion, published package-index and HTTPS artifacts remain
 represented by committed hash locks; their wheels are not duplicated by this
 upstream capture. The overall recovery set is therefore not a fully offline
 installer.
@@ -199,9 +216,9 @@ uv warning in the top-level manifest before considering this recovery set usable
 The existing snapshot command still exits zero for warnings; inspect its report.
 The snapshot includes the accepted API wheel set and locked local upstream
 wheels, not installed environments,
-model weights, managed Python itself, or the uv executable. Restore the reviewed
-Python 3.9.18 and uv 0.8.19 prerequisites separately at the paths recorded in the
-runtime scripts, along with the OS libraries/drivers, API source and application
+model weights, or the uv executable. The exact installed Python 3.9.18
+build 20240224 is captured separately as described below; other managed Python
+versions and uv 0.8.19 still require separate recovery at the recorded paths, along with the OS libraries/drivers, API source and application
 data. Extract the archived recipes into a separate review directory, compare them
 against the recorded API commit, then restore the bundle to its recorded absolute
 path. Run `sh scripts/runtime.sh sync` and `check` as the Farm owner before
@@ -283,3 +300,35 @@ prepared wheel-capture extension was withdrawn. Follow the API's
 `docs/deployment/kitsu-retirement.md`; after removing its two units and routing,
 refresh the root snapshot so recovery does not recreate the retired host.
 PostgreSQL database `zoudb` deletion remains an owner-run operation.
+
+## Exact managed Python 3.9.18 recovery archive
+
+The API uv capture also retains the accepted installed-byte archive for
+`/srv/farm/.uv/python/cpython-3.9.18-linux-x86_64-gnu`, build `20240224`, under
+`uv/api/managed-python/cpython-3.9.18-build-20240224/`. This is independent of
+any application's wheel set. Snapshot capture copies only the archive,
+`source-manifest.json` and `receipt.json` from
+`/srv/farm/.uv/migrations/2026-10-03-managed-python-recovery`; it does not
+rearchive or modify a live interpreter, download files or extract the archive.
+
+The receipt is pinned by SHA-256 in `capture-api-uv.py`:
+`a5b616f544ca695793321b4f72e3e6859ac7aee0aa109f476a3659832e1e1a16`.
+Its manifest hash is
+`f5ad06cb019669db55abed5046d17654d471b2574c1bcda79bbe9549998a7ac2`;
+its 27,868,993-byte `python-3.9.18-build-20240224.tar.gz` hash is
+`fb338b67a7f5339da97c88e04237d6fae8c418e30172c39770b6c575511d93b1`.
+Every source and retained copy is hash-checked. Valid independent copies are
+reused; copies are mode 0600 beneath mode 0700 directories. Missing, changed,
+unapproved or symlinked artifacts leave capture status incomplete.
+
+The accepted manifest records all 5,636 entries: 4,355 regular files totaling
+85,333,567 bytes, 234 directories and 1,047 internal symlinks. The private
+archive was checked against those exact bytes and metadata, with unchanged
+before/after source manifests. This preserves the installed interpreter; it
+does not claim a matching upstream download or prove extraction/runtime
+recovery. It does not include uv, OS libraries/drivers, application code,
+configuration or models. Keep the receipt's limitations with the archive.
+Restore first into a private review directory, verify its manifest and perform
+contained interpreter validation before considering any final-path recovery.
+Do not unpack over an active runtime. No automatic extraction or runtime
+replacement is part of snapshot capture.

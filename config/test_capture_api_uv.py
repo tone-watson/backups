@@ -22,6 +22,9 @@ class CaptureTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        self.managed_python = mock.patch.object(capture, "capture_managed_python", return_value={"status": "passed", "fixture": True})
+        self.managed_capture = self.managed_python.start()
+        self.addCleanup(self.managed_python.stop)
         self.repo = self.root / "api"
         self.bundle = self.root / "bundle"
         self.destination = self.root / "backup"
@@ -57,7 +60,7 @@ class CaptureTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.upstream_wheels = {}
         for profile, wheel_root in self.upstream_roots.items():
-            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/"}.get(profile, "")
+            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/"}.get(profile, "")
             relative = prefix + "example-2.0-py3-none-any.whl"
             wheel = wheel_root / relative
             wheel.parent.mkdir(parents=True)
@@ -82,6 +85,13 @@ class CaptureTests(unittest.TestCase):
     def commit(self):
         subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "update"], check=True)
+
+    def test_managed_python_failure_keeps_overall_capture_incomplete(self):
+        self.managed_capture.side_effect = FileNotFoundError("fixture missing interpreter archive")
+        with self.assertRaises(FileNotFoundError):
+            capture.capture(self.repo, self.destination)
+        self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+        self.managed_capture.assert_called_once_with(self.destination / "managed-python/cpython-3.9.18-build-20240224")
 
     def test_copy_and_daily_reuse_preserve_source_inode_and_permissions(self):
         first = capture.capture(self.repo, self.destination)
@@ -332,6 +342,95 @@ class CaptureTests(unittest.TestCase):
         (wheelhouse / "mode-preserved").symlink_to(source.parent)
         with self.assertRaisesRegex(ValueError, "real backup directory"):
             capture.capture(self.repo, self.destination)
+
+
+class ManagedPythonRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.bundle = self.root / "bundle"
+        self.bundle.mkdir()
+        self.destination = self.root / "backup"
+        manifest = b'{"schema":1,"entries":{}}\n'
+        archive = b"inert accepted archive fixture; never extracted"
+        receipt = {"schema": 1, "status": "passed", "build": "20240224",
+                   "source_prefix": "/srv/farm/.uv/python/cpython-3.9.18-linux-x86_64-gnu",
+                   "before_after_source_match": True, "archive_verified": True,
+                   "manifest": {"filename": "source-manifest.json", "sha256": hashlib.sha256(manifest).hexdigest()},
+                   "archive": {"filename": "python-3.9.18-build-20240224.tar.gz", "sha256": hashlib.sha256(archive).hexdigest(), "bytes": len(archive)}}
+        self.payloads = {"source-manifest.json": manifest,
+                         "python-3.9.18-build-20240224.tar.gz": archive,
+                         "receipt.json": (json.dumps(receipt) + "\n").encode()}
+        for name, payload in self.payloads.items():
+            (self.bundle / name).write_bytes(payload)
+            (self.bundle / name).chmod(0o644)
+        for name, value in (("MANAGED_PYTHON_BUNDLE", self.bundle),
+                            ("MANAGED_PYTHON_RECEIPT_SHA256", hashlib.sha256(self.payloads["receipt.json"]).hexdigest())):
+            patcher = mock.patch.object(capture, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_copy_and_reuse_independent_verified_private_files(self):
+        first = capture.capture_managed_python(self.destination)
+        self.assertEqual(first["copied_files"], 3)
+        self.assertEqual(first["status"], "passed")
+        inodes = {}
+        for name, payload in self.payloads.items():
+            source, target = self.bundle / name, self.destination / name
+            self.assertEqual(target.read_bytes(), payload)
+            self.assertNotEqual(source.stat().st_ino, target.stat().st_ino)
+            self.assertEqual(target.stat().st_nlink, 1)
+            self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(source.stat().st_mode & 0o777, 0o644)
+            inodes[name] = target.stat().st_ino
+        self.assertEqual(self.destination.stat().st_mode & 0o777, 0o700)
+        repeated = capture.capture_managed_python(self.destination)
+        self.assertEqual(repeated["copied_files"], 0)
+        self.assertEqual(repeated["reused_files"], 3)
+        self.assertEqual(inodes, {name: (self.destination / name).stat().st_ino for name in self.payloads})
+
+    def test_hardlinked_destination_is_replaced_without_changing_source(self):
+        self.destination.mkdir()
+        for name in self.payloads:
+            os.link(self.bundle / name, self.destination / name)
+        result = capture.capture_managed_python(self.destination)
+        self.assertEqual(result["copied_files"], 3)
+        for name in self.payloads:
+            self.assertEqual((self.bundle / name).stat().st_mode & 0o777, 0o644)
+            self.assertNotEqual((self.bundle / name).stat().st_ino, (self.destination / name).stat().st_ino)
+
+    def test_corrupted_or_missing_artifact_invalidates_previous_success(self):
+        for name, payload in self.payloads.items():
+            for missing in (False, True):
+                with self.subTest(name=name, missing=missing):
+                    capture.capture_managed_python(self.destination)
+                    source = self.bundle / name
+                    if missing:
+                        source.unlink()
+                    else:
+                        source.write_bytes(b"corrupted retained artifact")
+                    with self.assertRaises((OSError, ValueError)):
+                        capture.capture_managed_python(self.destination)
+                    self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+                    source.write_bytes(payload)
+
+    def test_symlink_bundle_or_artifact_is_rejected(self):
+        alias = self.root / "alias"
+        alias.symlink_to(self.bundle)
+        with mock.patch.object(capture, "MANAGED_PYTHON_BUNDLE", alias):
+            with self.assertRaisesRegex(ValueError, "canonical"):
+                capture.capture_managed_python(self.destination)
+        for name, payload in self.payloads.items():
+            source = self.bundle / name
+            other = self.root / "outside"
+            other.write_bytes(payload)
+            source.unlink()
+            source.symlink_to(other)
+            with self.subTest(name=name), self.assertRaises(OSError):
+                capture.capture_managed_python(self.destination)
+            source.unlink()
+            source.write_bytes(payload)
 
 
 class PrivateEnvironmentTests(unittest.TestCase):

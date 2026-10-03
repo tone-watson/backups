@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+MANAGED_PYTHON_BUNDLE = Path("/srv/farm/.uv/migrations/2026-10-03-managed-python-recovery")
+MANAGED_PYTHON_RECEIPT_SHA256 = "a5b616f544ca695793321b4f72e3e6859ac7aee0aa109f476a3659832e1e1a16"
 API_ROOT = Path("/srv/farm/sys/api")
 SD_ENV_PATH = Path("/srv/farm/private/stable-diffusion/service.env")
 RECIPES = (
@@ -25,12 +27,14 @@ UPSTREAM_WHEEL_ROOTS = {
     "stable-diffusion": Path("/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels"),
     "graphiti": Path("/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels"),
     "ace-step": Path("/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels"),
+    "live-portrait": Path("/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
     "stable-diffusion": ("requirements.lock", "requirements-overlays.lock"),
     "graphiti": ("graphiti-root/requirements.lock", "graphiti-mcp/requirements.lock"),
     "ace-step": ("requirements.lock",),
+    "live-portrait": ("requirements.lock",),
 }
 
 
@@ -206,6 +210,54 @@ def copy_wheel(source, destination, expected_sha, expected_bytes):
     return True
 
 
+def capture_managed_python(destination):
+    """Copy the accepted installed-byte interpreter archive; never execute/extract it."""
+    directory(destination)
+    write_bytes(destination / "capture.json", b'{"status":"incomplete"}\n')
+    bundle = MANAGED_PYTHON_BUNDLE
+    if bundle.resolve() != bundle or not bundle.is_dir():
+        raise ValueError("Missing canonical managed Python recovery bundle")
+    with regular(bundle / "receipt.json") as stream:
+        receipt_bytes = stream.read(65537)
+    if (len(receipt_bytes) > 65536
+            or hashlib.sha256(receipt_bytes).hexdigest() != MANAGED_PYTHON_RECEIPT_SHA256):
+        raise ValueError("Managed Python recovery receipt differs from reviewed pin")
+    receipt = json.loads(receipt_bytes)
+    if (receipt.get("schema") != 1 or receipt.get("status") != "passed"
+            or receipt.get("source_prefix") != "/srv/farm/.uv/python/cpython-3.9.18-linux-x86_64-gnu"
+            or receipt.get("build") != "20240224"
+            or receipt.get("before_after_source_match") is not True
+            or receipt.get("archive_verified") is not True):
+        raise ValueError("Managed Python recovery receipt is not accepted")
+    artifacts = []
+    for key, filename, maximum in (
+            ("manifest", "source-manifest.json", 8 * 1024 * 1024),
+            ("archive", "python-3.9.18-build-20240224.tar.gz", 256 * 1024 * 1024)):
+        item = receipt[key]
+        if (item["filename"] != filename
+                or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])):
+            raise ValueError("Invalid managed Python recovery artifact")
+        source = bundle / filename
+        with regular(source) as stream:
+            size = os.fstat(stream.fileno()).st_size
+        if not 0 < size <= maximum or (key == "archive" and size != item["bytes"]):
+            raise ValueError("Unexpected managed Python recovery artifact size")
+        copied = copy_wheel(source, destination / filename, item["sha256"], size)
+        artifacts.append({"filename": filename, "sha256": item["sha256"],
+                          "bytes": size, "copied": copied})
+    copied = copy_wheel(bundle / "receipt.json", destination / "receipt.json",
+                        MANAGED_PYTHON_RECEIPT_SHA256, len(receipt_bytes))
+    artifacts.append({"filename": "receipt.json", "sha256": MANAGED_PYTHON_RECEIPT_SHA256,
+                      "bytes": len(receipt_bytes), "copied": copied})
+    result = {"status": "passed", "source_bundle": str(bundle),
+              "source_prefix": receipt["source_prefix"], "build": receipt["build"],
+              "artifacts": artifacts, "copied_files": sum(item["copied"] for item in artifacts),
+              "reused_files": sum(not item["copied"] for item in artifacts),
+              "scope": "Exact accepted installed-byte archive; no extraction or upstream provenance claim"}
+    write_bytes(destination / "capture.json", (json.dumps(result, indent=2) + "\n").encode())
+    return result
+
+
 def git(repo, *args):
     return subprocess.check_output(
         ["/usr/bin/git", "-c", "safe.directory=" + str(repo), "-C", str(repo), *args],
@@ -258,6 +310,8 @@ def capture(repo, destination):
                 raise ValueError("Unexpected entry in backup wheelhouse")
             old.unlink()
     upstream = capture_upstream(repo, revision, destination)
+    managed_python = capture_managed_python(
+        destination / "managed-python/cpython-3.9.18-build-20240224")
     for name, value in (("api-recipes.tar", archive), ("artifacts.json", manifest_bytes),
                         ("requirements.lock", lock), ("receipt.json", receipt_bytes)):
         write_bytes(destination / name, value)
@@ -266,7 +320,7 @@ def capture(repo, destination):
               "copied_wheels": copied, "reused_wheels": len(artifacts) - copied,
               "recipe_paths": list(RECIPES), "recipes_sha256": hashlib.sha256(archive).hexdigest(),
               "receipt_sha256": manifest["receipt_sha256"], "lock_sha256": manifest["lock_sha256"],
-              "upstream": upstream}
+              "upstream": upstream, "managed_python": managed_python}
     write_bytes(destination / "capture.json", (json.dumps(result, indent=2) + "\n").encode())
     return result
 
