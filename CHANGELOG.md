@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.13 - 2026-10-03
+### CHANGED:
+- Include Noise Agent locked Python wheels in recovery capture
+
+
 ## v1.1.12 - 2026-10-03
 ### CHANGED:
 - Capture hardware uv recovery wheels from the committed API recipe
