@@ -245,9 +245,10 @@ uv warning in the top-level manifest before considering this recovery set usable
 The existing snapshot command still exits zero for warnings; inspect its report.
 The snapshot includes the accepted API wheel set and locked local upstream
 wheels, not installed environments,
-model weights, or the uv executable. The exact installed Python 3.9.18
-build 20240224 is captured separately as described below; other managed Python
-versions and uv 0.8.19 still require separate recovery at the recorded paths, along with the OS libraries/drivers, API source and application
+model weights, or the uv executable. Separate exact installed-interpreter archives
+cover Python 3.9.18, 3.10.14, 3.10.16, 3.10.18, 3.10.19 and 3.12.11 as described
+below. Other managed versions and uv 0.8.19 still require separate recovery at
+the recorded paths, along with OS libraries/drivers, API source and application
 data. Extract the archived recipes into a separate review directory, compare them
 against the recorded API commit, then restore the bundle to its recorded absolute
 path. Run `sh scripts/runtime.sh sync` and `check` as the Farm owner before
@@ -414,9 +415,10 @@ its media tools.
 
 Preserve the upstream checkout and local changes separately. The independent
 85-file FFmpeg bundle is retained under the migration evidence directory and is
-not included in this wheel capture. OS libraries, managed Python 3.10.16,
-credentials, database/media, yt-dlp and provider configuration also require
-separate recovery coverage. See the
+not included in this wheel capture. Managed Python 3.10.16 is retained in the
+separate interpreter archive described below. OS libraries, credentials,
+database/media, yt-dlp and provider configuration still require separate recovery
+coverage. See the
 [Noise Agent guide](/srv/farm/sys/api/docs/deployment/uv-noise-agent.md).
 Do not retire its Conda environment based on this Python-only snapshot.
 
@@ -442,10 +444,12 @@ see the [InstantMesh guide](/srv/farm/sys/api/docs/deployment/uv-instantmesh.md)
 for the Python 3.10.14/123-package baseline and acceptance receipts.
 
 This addition covers the Python recipe and wheel payloads, including retained
-package-native binaries. It does not capture the managed Python 3.10.14
-interpreter, independent CUDA toolkit, separate header overlay, host compiler
-and OS libraries, NVIDIA driver, upstream source/local assets or model weights.
-Those require separate recovery coverage. CPU/CLI-help parity and an isolated
+package-native binaries. Managed Python 3.10.14 is retained in the separate
+interpreter archive described below, with an explicit scratch-restore ownership
+qualification. The wheel capture does not include the independent CUDA toolkit,
+separate header overlay, host compiler and OS libraries, NVIDIA driver, upstream
+source/local assets or model weights. Those still require separate recovery
+coverage. CPU/CLI-help parity and an isolated
 explicit-target extension build do not establish normal application JIT, GPU
 inference or full generation recovery. Preserve Conda pending the remaining
 acceptance and consumer checks.
@@ -454,3 +458,60 @@ Commit and release the API recipe before this Backups update. Then refresh the
 root configuration snapshot with `sudo systemctl start farm-config-snapshot.service`
 and verify its receipt. Fixture/static artifact checks do not run that snapshot
 or establish off-host recovery. No service restart or systemd reload is required.
+
+
+## Additional exact managed Python recovery archives
+
+Five additional accepted interpreter bundles are retained separately from the
+application wheelhouses. Their source root is
+`/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/<version>/`;
+the snapshot destination is
+`uv/api/managed-python/cpython-<version>-build-<build>/`.
+
+| Python | Build | Compressed bytes | Accepted receipt |
+| --- | --- | ---: | --- |
+| 3.10.14 | 20240814 | 21,386,053 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.10.14/receipt.json) |
+| 3.10.16 | 20250317 | 20,733,453 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.10.16/receipt.json) |
+| 3.10.18 | 20250918 | 28,738,871 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.10.18/receipt.json) |
+| 3.10.19 | 20251031 | 27,887,538 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.10.19/receipt.json) |
+| 3.12.11 | 20250918 | 34,483,022 | [Receipt](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/3.12.11/receipt.json) |
+
+The capture helper pins each receipt's SHA-256 and requires its exact version,
+build, source prefix, archive filename and accepted verification flags. It copies
+only `python-<version>-build-<build>.tar.gz`, `source-manifest.json` and
+`receipt.json`, plus the one explicitly pinned ownership policy for Python
+3.10.14. Source/copy hashes and bounded file sizes are verified; symlinks and
+changed receipts are refused. Copies are independent mode-0600 files beneath
+mode-0700 directories and can be reused after verification. Capture does not
+rearchive, extract, execute or modify a live interpreter. The original 3.9.18
+capture function, destination and `managed_python` result remain unchanged;
+these five entries appear in a separate `additional_managed_python` mapping.
+
+All five bundles passed local scratch extraction, full manifest comparison and
+12 standard-library import checks with SSL, SQLite, compression and hashing
+fixtures in a network/GPU-free namespace. Original artifacts and restored
+prefixes remained unchanged. Four versions retained exact numeric ownership.
+Python **3.10.14** has a qualified result: its archive preserves host UID 1000
+and GID 33 for **157 bytecode files (0644) and 11 cache directories (0755)**,
+but the unprivileged scratch restore used GID 1000 for precisely those 168
+entries. Their exact paths are retained in
+`python_31014_host_ownership_policy.json`, SHA-256
+`d4b0636012ff5af87edb7adcbfff6e273b9dec4b14ce1ec4b99a7d6cf852e5ef`.
+The [qualified restore report](/srv/farm/.uv/migrations/2026-10-03-managed-python-extra/restore-validation-3.10.14-kq5rb7wu/restore-validation.json)
+has SHA-256 `510d9fe0ab5c100d522b72ec0e5d829b3e490904bbc83fddb1399d8b9eb9a486`.
+Exact privileged GID-33 restoration and cross-user application access remain
+untested. The other versions have no added group-restoration qualification.
+
+These archives preserve installed bytes, not independent upstream provenance.
+Restore each interpreter at its recorded absolute source prefix after reviewing
+its manifest and ownership requirements. The
+[managed interpreter guide](/srv/farm/sys/api/docs/deployment/uv-managed-python-recovery.md)
+records the individual validation receipts and limits. The uv executable, OS
+libraries/drivers, application code/configuration/models and separate native
+toolkits remain outside these interpreter bundles. Local restore checks do not
+establish off-host or complete application/generation recovery.
+
+After the coordinated releases, refresh the root snapshot with
+`sudo systemctl start farm-config-snapshot.service` and verify its capture
+receipt. The implementation tests do not run that service. No service restart
+or systemd reload is required for this addition.

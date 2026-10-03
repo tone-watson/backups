@@ -14,6 +14,21 @@ from urllib.parse import unquote, urlsplit
 
 MANAGED_PYTHON_BUNDLE = Path("/srv/farm/.uv/migrations/2026-10-03-managed-python-recovery")
 MANAGED_PYTHON_RECEIPT_SHA256 = "a5b616f544ca695793321b4f72e3e6859ac7aee0aa109f476a3659832e1e1a16"
+ADDITIONAL_MANAGED_PYTHON_ROOT = Path("/srv/farm/.uv/migrations/2026-10-03-managed-python-extra")
+PYTHON_31014_OWNERSHIP_POLICY_FILENAME = "python_31014_host_ownership_policy.json"
+PYTHON_31014_OWNERSHIP_POLICY_SHA256 = "d4b0636012ff5af87edb7adcbfff6e273b9dec4b14ce1ec4b99a7d6cf852e5ef"
+ADDITIONAL_MANAGED_PYTHON_PROFILES = {
+    "3.10.14": {"build": "20240814",
+                "receipt_sha256": "81f40a19834ddf4f8410a1d3d1e1d38dc4b93ea86e12b92a5a6ea9612a85d4bf"},
+    "3.10.16": {"build": "20250317",
+                "receipt_sha256": "8ffd8a92c40f4535edf04374f974c64b2400d637599c3b37032c59939b49b9a2"},
+    "3.10.18": {"build": "20250918",
+                "receipt_sha256": "4fc113f33c526dd10df775ca70dd7f522ff915a06646a168017611a444485ef7"},
+    "3.10.19": {"build": "20251031",
+                "receipt_sha256": "b5904fb0d5c5bccffcc40f4d2da03ec105f711afa5edabcd970aad6eaf81c5c2"},
+    "3.12.11": {"build": "20250918",
+                "receipt_sha256": "863a41d609b648e7d909a0e8f8eab8248b71cbb1a25ea547fa12042fb2f8d671"},
+}
 API_ROOT = Path("/srv/farm/sys/api")
 SD_ENV_PATH = Path("/srv/farm/private/stable-diffusion/service.env")
 RECIPES = (
@@ -268,6 +283,86 @@ def capture_managed_python(destination):
     return result
 
 
+def capture_additional_managed_python_profile(version, profile, destination):
+    """Copy one explicitly pinned additional interpreter bundle without extracting it."""
+    build, receipt_sha = profile["build"], profile["receipt_sha256"]
+    if (not re.fullmatch(r"3\.[0-9]+\.[0-9]+", version)
+            or not re.fullmatch(r"[0-9]{8}", build)
+            or not re.fullmatch(r"[0-9a-f]{64}", receipt_sha)):
+        raise ValueError("Invalid reviewed additional managed Python profile")
+    directory(destination)
+    write_bytes(destination / "capture.json", b'{"status":"incomplete"}\n')
+    bundle = ADDITIONAL_MANAGED_PYTHON_ROOT / version
+    if bundle.resolve() != bundle or not bundle.is_dir():
+        raise ValueError("Missing canonical additional managed Python recovery bundle")
+    with regular(bundle / "receipt.json") as stream:
+        receipt_bytes = stream.read(65537)
+    if (len(receipt_bytes) > 65536
+            or hashlib.sha256(receipt_bytes).hexdigest() != receipt_sha):
+        raise ValueError("Additional managed Python receipt differs from reviewed pin")
+    receipt = json.loads(receipt_bytes)
+    prefix = "/srv/farm/.uv/python/cpython-" + version + "-linux-x86_64-gnu"
+    if (not isinstance(receipt, dict) or type(receipt.get("schema")) is not int
+            or receipt["schema"] != 1 or receipt.get("status") != "passed"
+            or receipt.get("source_prefix") != prefix
+            or receipt.get("python_version") != version or receipt.get("build") != build
+            or receipt.get("before_after_source_match") is not True
+            or receipt.get("archive_verified") is not True):
+        raise ValueError("Additional managed Python recovery receipt is not accepted")
+    selected = [
+        ("manifest", "source-manifest.json", 8 * 1024 * 1024),
+        ("archive", "python-" + version + "-build-" + build + ".tar.gz", 256 * 1024 * 1024),
+    ]
+    policy = receipt.get("ownership_policy")
+    if version == "3.10.14":
+        if (not isinstance(policy, dict)
+                or policy.get("filename") != PYTHON_31014_OWNERSHIP_POLICY_FILENAME
+                or policy.get("sha256") != PYTHON_31014_OWNERSHIP_POLICY_SHA256):
+            raise ValueError("Managed Python 3.10.14 ownership policy differs from reviewed pin")
+        selected.append(("ownership_policy", PYTHON_31014_OWNERSHIP_POLICY_FILENAME, 1024 * 1024))
+    elif policy is not None:
+        raise ValueError("Unexpected managed Python ownership qualification")
+    artifacts = []
+    for key, filename, maximum in selected:
+        item = receipt.get(key)
+        if (not isinstance(item, dict) or item.get("filename") != filename
+                or not isinstance(item.get("sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])):
+            raise ValueError("Invalid additional managed Python recovery artifact")
+        source = bundle / filename
+        with regular(source) as stream:
+            size = os.fstat(stream.fileno()).st_size
+        if (not 0 < size <= maximum
+                or ((key == "archive" or "bytes" in item)
+                    and (type(item.get("bytes")) is not int or size != item["bytes"]))):
+            raise ValueError("Unexpected additional managed Python recovery artifact size")
+        copied = copy_wheel(source, destination / filename, item["sha256"], size)
+        artifacts.append({"filename": filename, "sha256": item["sha256"],
+                          "bytes": size, "copied": copied})
+    copied = copy_wheel(bundle / "receipt.json", destination / "receipt.json",
+                        receipt_sha, len(receipt_bytes))
+    artifacts.append({"filename": "receipt.json", "sha256": receipt_sha,
+                      "bytes": len(receipt_bytes), "copied": copied})
+    result = {"status": "passed", "source_bundle": str(bundle),
+              "source_prefix": prefix, "python_version": version, "build": build,
+              "artifacts": artifacts, "copied_files": sum(item["copied"] for item in artifacts),
+              "reused_files": sum(not item["copied"] for item in artifacts),
+              "scope": "Exact accepted installed-byte archive; no extraction or upstream provenance claim"}
+    write_bytes(destination / "capture.json", (json.dumps(result, indent=2) + "\n").encode())
+    return result
+
+
+def capture_additional_managed_python(destination):
+    """Retain only the five reviewed version/build bundles under distinct destinations."""
+    directory(destination)
+    results = {}
+    for version, profile in ADDITIONAL_MANAGED_PYTHON_PROFILES.items():
+        name = "cpython-" + version + "-build-" + profile["build"]
+        results[version] = capture_additional_managed_python_profile(
+            version, profile, destination / name)
+    return results
+
+
 def git(repo, *args):
     return subprocess.check_output(
         ["/usr/bin/git", "-c", "safe.directory=" + str(repo), "-C", str(repo), *args],
@@ -322,6 +417,8 @@ def capture(repo, destination):
     upstream = capture_upstream(repo, revision, destination)
     managed_python = capture_managed_python(
         destination / "managed-python/cpython-3.9.18-build-20240224")
+    additional_managed_python = capture_additional_managed_python(
+        destination / "managed-python")
     for name, value in (("api-recipes.tar", archive), ("artifacts.json", manifest_bytes),
                         ("requirements.lock", lock), ("receipt.json", receipt_bytes)):
         write_bytes(destination / name, value)
@@ -330,7 +427,8 @@ def capture(repo, destination):
               "copied_wheels": copied, "reused_wheels": len(artifacts) - copied,
               "recipe_paths": list(RECIPES), "recipes_sha256": hashlib.sha256(archive).hexdigest(),
               "receipt_sha256": manifest["receipt_sha256"], "lock_sha256": manifest["lock_sha256"],
-              "upstream": upstream, "managed_python": managed_python}
+              "upstream": upstream, "managed_python": managed_python,
+              "additional_managed_python": additional_managed_python}
     write_bytes(destination / "capture.json", (json.dumps(result, indent=2) + "\n").encode())
     return result
 

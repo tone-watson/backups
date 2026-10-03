@@ -25,6 +25,10 @@ class CaptureTests(unittest.TestCase):
         self.managed_python = mock.patch.object(capture, "capture_managed_python", return_value={"status": "passed", "fixture": True})
         self.managed_capture = self.managed_python.start()
         self.addCleanup(self.managed_python.stop)
+        additional = mock.patch.object(capture, "capture_additional_managed_python",
+                                       return_value={"fixture": {"status": "passed"}})
+        self.additional_capture = additional.start()
+        self.addCleanup(additional.stop)
         self.repo = self.root / "api"
         self.bundle = self.root / "bundle"
         self.destination = self.root / "backup"
@@ -95,6 +99,8 @@ class CaptureTests(unittest.TestCase):
 
     def test_copy_and_daily_reuse_preserve_source_inode_and_permissions(self):
         first = capture.capture(self.repo, self.destination)
+        self.assertEqual(first["managed_python"], {"status": "passed", "fixture": True})
+        self.assertEqual(first["additional_managed_python"], {"fixture": {"status": "passed"}})
         self.assertEqual(first["copied_wheels"], 1)
         copied = self.destination / "wheelhouse" / self.wheel.name
         self.assertNotEqual(copied.stat().st_ino, self.wheel.stat().st_ino)
@@ -106,6 +112,14 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(second["copied_wheels"], 0)
         self.assertEqual(second["reused_wheels"], 1)
         self.assertEqual(copied.stat().st_ino, inode)
+
+    def test_additional_python_failure_keeps_overall_capture_incomplete(self):
+        self.additional_capture.side_effect = ValueError("fixture archive mismatch")
+        with self.assertRaisesRegex(ValueError, "archive mismatch"):
+            capture.capture(self.repo, self.destination)
+        self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+        self.managed_capture.assert_called_once_with(self.destination / "managed-python/cpython-3.9.18-build-20240224")
+        self.additional_capture.assert_called_once_with(self.destination / "managed-python")
 
     def test_existing_source_hardlink_is_replaced_before_permission_changes(self):
         (self.destination / "wheelhouse").mkdir(parents=True)
@@ -438,6 +452,206 @@ class ManagedPythonRecoveryTests(unittest.TestCase):
                 capture.capture_managed_python(self.destination)
             source.unlink()
             source.write_bytes(payload)
+
+
+class AdditionalManagedPythonRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.bundles = self.root / "bundles"
+        self.bundles.mkdir()
+        self.destination = self.root / "backup"
+        self.profiles, self.payloads = {}, {}
+        policy = b'{"schema":1,"python_version":"3.10.14","exceptions":{}}\n'
+        policy_sha = hashlib.sha256(policy).hexdigest()
+        for version, profile in capture.ADDITIONAL_MANAGED_PYTHON_PROFILES.items():
+            build = profile["build"]
+            bundle = self.bundles / version
+            bundle.mkdir()
+            manifest = b'{"schema":1,"entries":{}}\n'
+            archive = (version + " inert archive; never extracted").encode()
+            filename = "python-" + version + "-build-" + build + ".tar.gz"
+            receipt = {"schema": 1, "status": "passed", "build": build,
+                       "python_version": version,
+                       "source_prefix": "/srv/farm/.uv/python/cpython-" + version + "-linux-x86_64-gnu",
+                       "before_after_source_match": True, "archive_verified": True,
+                       "manifest": {"filename": "source-manifest.json", "sha256": hashlib.sha256(manifest).hexdigest()},
+                       "archive": {"filename": filename, "sha256": hashlib.sha256(archive).hexdigest(), "bytes": len(archive)}}
+            self.profiles[version] = {"build": build, "receipt_sha256": ""}
+            self.payloads[version] = {"source-manifest.json": manifest, filename: archive}
+            if version == "3.10.14":
+                policy_name = capture.PYTHON_31014_OWNERSHIP_POLICY_FILENAME
+                self.payloads[version][policy_name] = policy
+                receipt["ownership_policy"] = {"filename": policy_name,
+                                               "sha256": policy_sha, "bytes": len(policy)}
+            for name, payload in self.payloads[version].items():
+                (bundle / name).write_bytes(payload)
+                (bundle / name).chmod(0o644)
+            self.repin(version, receipt)
+            self.payloads[version]["receipt.json"] = (bundle / "receipt.json").read_bytes()
+            (bundle / "not-selected.txt").write_text("outside capture selection")
+        for name, value in (("ADDITIONAL_MANAGED_PYTHON_ROOT", self.bundles),
+                            ("ADDITIONAL_MANAGED_PYTHON_PROFILES", self.profiles),
+                            ("PYTHON_31014_OWNERSHIP_POLICY_SHA256", policy_sha)):
+            patcher = mock.patch.object(capture, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def repin(self, version, receipt):
+        raw = (json.dumps(receipt) + "\n").encode()
+        path = self.bundles / version / "receipt.json"
+        path.write_bytes(raw)
+        path.chmod(0o644)
+        self.profiles[version]["receipt_sha256"] = hashlib.sha256(raw).hexdigest()
+
+    def saved(self, version):
+        return self.destination / ("cpython-" + version + "-build-" + self.profiles[version]["build"])
+
+    def test_all_profiles_copy_only_selected_independent_artifacts_and_reuse(self):
+        first = capture.capture_additional_managed_python(self.destination)
+        self.assertEqual(set(first), set(self.profiles))
+        identities = {}
+        for version, result in first.items():
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["python_version"], version)
+            self.assertEqual(result["copied_files"], len(self.payloads[version]))
+            saved = self.saved(version)
+            self.assertEqual(saved.stat().st_mode & 0o777, 0o700)
+            self.assertEqual({p.name for p in saved.iterdir()}, set(self.payloads[version]) | {"capture.json"})
+            for name, payload in self.payloads[version].items():
+                source, target = self.bundles / version / name, saved / name
+                self.assertEqual(target.read_bytes(), payload)
+                self.assertNotEqual(source.stat().st_ino, target.stat().st_ino)
+                self.assertEqual(target.stat().st_nlink, 1)
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(source.stat().st_mode & 0o777, 0o644)
+                identities[(version, name)] = target.stat().st_ino
+        second = capture.capture_additional_managed_python(self.destination)
+        self.assertTrue(all(r["copied_files"] == 0 and r["reused_files"] == len(self.payloads[v])
+                            for v, r in second.items()))
+        for (version, name), inode in identities.items():
+            self.assertEqual((self.saved(version) / name).stat().st_ino, inode)
+
+    def test_receipt_identity_flags_and_artifact_names_are_strict_even_when_repinned(self):
+        version = next(iter(self.profiles))
+        original = json.loads(self.payloads[version]["receipt.json"])
+        changes = [("schema", True), ("status", "incomplete"), ("python_version", "3.0.0"),
+                   ("build", "19000101"), ("source_prefix", "/elsewhere"),
+                   ("before_after_source_match", False), ("archive_verified", False),
+                   ("manifest.filename", "../source-manifest.json"),
+                   ("archive.filename", "another.tar.gz"), ("archive.sha256", "invalid"),
+                   ("archive.bytes", True)]
+        for key, value in changes:
+            receipt = json.loads(json.dumps(original))
+            target = receipt
+            parts = key.split(".")
+            for part in parts[:-1]:
+                target = target[part]
+            target[parts[-1]] = value
+            self.repin(version, receipt)
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                capture.capture_additional_managed_python(self.destination)
+            self.assertEqual(json.loads((self.saved(version) / "capture.json").read_text())["status"], "incomplete")
+        self.repin(version, original)
+
+    def test_reviewed_ownership_policy_is_required_only_for_31014(self):
+        version = "3.10.14"
+        original = json.loads(self.payloads[version]["receipt.json"])
+        for policy in (None, {**original["ownership_policy"], "filename": "../outside.json"},
+                       {**original["ownership_policy"], "sha256": "0" * 64}):
+            receipt = {**original, "ownership_policy": policy}
+            self.repin(version, receipt)
+            with self.subTest(policy=policy), self.assertRaisesRegex(ValueError, "ownership policy"):
+                capture.capture_additional_managed_python(self.destination)
+        self.repin(version, original)
+        other = "3.10.18"
+        other_receipt = json.loads(self.payloads[other]["receipt.json"])
+        self.repin(other, {**other_receipt, "ownership_policy": original["ownership_policy"]})
+        with self.assertRaisesRegex(ValueError, "Unexpected.*ownership"):
+            capture.capture_additional_managed_python(self.destination)
+
+    def test_corrupt_or_missing_artifact_invalidates_previous_success(self):
+        version = next(iter(self.profiles))
+        for name, payload in self.payloads[version].items():
+            for missing in (False, True):
+                capture.capture_additional_managed_python(self.destination)
+                path = self.bundles / version / name
+                if missing:
+                    path.unlink()
+                else:
+                    path.write_bytes(b"corrupt")
+                with self.subTest(name=name, missing=missing), self.assertRaises((OSError, ValueError)):
+                    capture.capture_additional_managed_python(self.destination)
+                self.assertEqual(json.loads((self.saved(version) / "capture.json").read_text())["status"], "incomplete")
+                path.write_bytes(payload)
+
+    def test_symlink_root_bundle_artifact_and_destination_are_rejected(self):
+        alias = self.root / "alias"
+        alias.symlink_to(self.bundles)
+        with mock.patch.object(capture, "ADDITIONAL_MANAGED_PYTHON_ROOT", alias):
+            with self.assertRaisesRegex(ValueError, "canonical"):
+                capture.capture_additional_managed_python(self.destination)
+        version = next(iter(self.profiles))
+        bundle = self.bundles / version
+        actual = self.bundles / "actual"
+        bundle.rename(actual)
+        bundle.symlink_to(actual)
+        with self.assertRaisesRegex(ValueError, "canonical"):
+            capture.capture_additional_managed_python(self.destination)
+        bundle.unlink()
+        actual.rename(bundle)
+        for name, payload in self.payloads[version].items():
+            path = bundle / name
+            outside = self.root / "outside"
+            outside.write_bytes(payload)
+            path.unlink()
+            path.symlink_to(outside)
+            with self.subTest(name=name), self.assertRaises(OSError):
+                capture.capture_additional_managed_python(self.destination)
+            path.unlink()
+            path.write_bytes(payload)
+        destination_alias = self.root / "backup-alias"
+        destination_alias.symlink_to(self.destination)
+        with self.assertRaisesRegex(ValueError, "real backup directory"):
+            capture.capture_additional_managed_python(destination_alias)
+
+    def test_source_hardlinks_are_replaced_and_corrupt_saved_payload_is_repaired(self):
+        version = next(iter(self.profiles))
+        self.saved(version).mkdir(parents=True)
+        for name in self.payloads[version]:
+            os.link(self.bundles / version / name, self.saved(version) / name)
+        result = capture.capture_additional_managed_python(self.destination)
+        self.assertEqual(result[version]["copied_files"], len(self.payloads[version]))
+        for name in self.payloads[version]:
+            self.assertEqual((self.bundles / version / name).stat().st_mode & 0o777, 0o644)
+            self.assertNotEqual((self.bundles / version / name).stat().st_ino,
+                                (self.saved(version) / name).stat().st_ino)
+        name = "source-manifest.json"
+        (self.saved(version) / name).write_bytes(b"bad backup copy")
+        result = capture.capture_additional_managed_python(self.destination)
+        self.assertEqual(result[version]["copied_files"], 1)
+        self.assertEqual((self.saved(version) / name).read_bytes(), self.payloads[version][name])
+
+    def test_receipt_and_artifact_sizes_are_bounded(self):
+        version = next(iter(self.profiles))
+        receipt_path = self.bundles / version / "receipt.json"
+        large = b" " * 65537
+        receipt_path.write_bytes(large)
+        self.profiles[version]["receipt_sha256"] = hashlib.sha256(large).hexdigest()
+        with self.assertRaisesRegex(ValueError, "receipt differs"):
+            capture.capture_additional_managed_python(self.destination)
+        original = json.loads(self.payloads[version]["receipt.json"])
+        self.repin(version, original)
+        for key, maximum in (("manifest", 8 * 1024 * 1024), ("archive", 256 * 1024 * 1024)):
+            path = self.bundles / version / original[key]["filename"]
+            payload = path.read_bytes()
+            for size in (0, maximum + 1):
+                with path.open("wb") as stream:
+                    stream.truncate(size)
+                with self.subTest(key=key, size=size), self.assertRaisesRegex(ValueError, "artifact size"):
+                    capture.capture_additional_managed_python(self.destination)
+            path.write_bytes(payload)
 
 
 class PrivateEnvironmentTests(unittest.TestCase):

@@ -92,9 +92,13 @@ A single disk image isn't the right model on Linux (hardware/driver drift, and ~
    the exact private Stable Diffusion service environment,
    `apt list --installed`, and the `/usr/local/bin/farm` symlink into
    `/var/backups/config-snapshot` (root-only `700`; credential `600`). See **`config/README.md`**
-   for install + the one-page bootstrap-restore order. InstantMesh's 123-wheel
-   capture excludes its managed interpreter, separate CUDA toolkit/header bundles,
-   model weights and application source; it does not establish full generation recovery.
+   for install + the one-page bootstrap-restore order. Separate verified archives
+   retain managed Python 3.9.18, 3.10.14, 3.10.16, 3.10.18, 3.10.19 and 3.12.11.
+   Python 3.10.14's scratch restore has an explicit 168-entry group-ownership
+   qualification. The uv executable, separate CUDA toolkit/header bundles, model
+   weights and application source still require separate recovery; this does not
+   establish full generation recovery. See the
+   [managed interpreter guide](/srv/farm/sys/api/docs/deployment/uv-managed-python-recovery.md).
    (The credential is SENSITIVE —
    push that dir off-box only via an **encrypted** remote.)
 3. **Bootstrap** — a documented script that, on a fresh Ubuntu box, restores the above and re-clones the repos.
