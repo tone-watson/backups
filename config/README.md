@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait / Flood Map uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait / Flood Map / TikTok / Hardware uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -120,7 +120,7 @@ helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
 Uncommitted API edits are deliberately excluded. Commit and release the API's
-`tiktok-scraper` recipe before releasing this backup update or running its capture;
+`hardware` recipe before releasing this backup update or running its capture;
 the existing `graphiti-root` and `graphiti-mcp` recipes must also remain committed.
 A missing committed profile lock fails capture; a dirty working tree is not a
 substitute for the recorded API revision.
@@ -140,7 +140,8 @@ export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
-Stable Diffusion, Graphiti, ACE-Step, LivePortrait, Flood Map and TikTok Scraper locks. These
+Stable Diffusion, Graphiti, ACE-Step, LivePortrait, Flood Map, TikTok Scraper and
+Hardware locks. These
 include recovered native extensions, preserved editable-installation wheels
 and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
@@ -150,15 +151,16 @@ accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-hardware/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
 Nothing is downloaded, installed or imported.
 
 Copies live under `uv/api/upstream/<profile>/wheelhouse/`, preserving nested paths
-such as ComfyUI's `mode-preserved/` and ACE-Step/LivePortrait/Flood Map
+such as ComfyUI's `mode-preserved/` and ACE-Step/LivePortrait/Flood Map/Hardware
 `retained/`. `capture.json` records each original path, backup-relative
 filename, hash, byte count and
 referring lock, plus the lock
@@ -375,3 +377,24 @@ replacement is part of snapshot capture.
 ### TikTok Scraper recovery
 
 Capture retains the 13 artifacts in the committed `deploy/upstream/tiktok-scraper/requirements.lock`, including the recovered Playwright driver payload, under `uv/api/upstream/tiktok-scraper/wheelhouse/`. Restore the source separately and follow the API-owned deployment guide. This wheelhouse does not contain Chromium or establish browser/TikTok acceptance; retain the original Conda runtime until those checks pass.
+
+### Hardware controller recovery
+
+Capture retains the 18 artifacts in the committed
+`deploy/upstream/hardware/requirements.lock`, including native PyAudio/evdev and
+the preserved packaging payloads. They are copied independently to
+`uv/api/upstream/hardware/wheelhouse/`, keeping the `retained/` subdirectory.
+Restore the source and its existing local changes, Vosk model, OS audio libraries
+and udev configuration separately. The API-owned recipe installs
+`/srv/farm/sys/hardware/.venv` without changing its launcher. See the
+[hardware runtime guide](/srv/farm/sys/api/docs/deployment/uv-hardware.md) for
+validation and device-permission limits. This addition has fixture coverage;
+root snapshot capture and full controller recovery still require separate checks.
+
+Release the API recipe before this Backups update. Then refresh recovery data:
+
+```sh
+sudo systemctl start farm-config-snapshot.service
+```
+
+No service restart or systemd reload is required for the capture-helper change.
