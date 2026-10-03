@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.6 - 2026-10-03
+### CHANGED:
+- Capture Graphiti runtime recipes and verified wheel bundle
+
+
 ## v1.1.5 - 2026-10-03
 ### CHANGED:
 - Retire obsolete API Conda backup export
