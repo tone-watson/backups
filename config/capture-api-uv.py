@@ -51,6 +51,7 @@ UPSTREAM_WHEEL_ROOTS = {
     "noise-agent": Path("/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels"),
     "instantmesh": Path("/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels"),
     "riffusion": Path("/srv/farm/.uv/migrations/2026-10-03-riffusion/wheels"),
+    "rave": Path("/srv/farm/.uv/migrations/2026-10-03-rave/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
@@ -64,6 +65,7 @@ UPSTREAM_LOCKS = {
     "noise-agent": ("requirements.lock",),
     "instantmesh": ("requirements.lock",),
     "riffusion": ("requirements.lock",),
+    "rave": ("requirements.lock",),
 }
 
 

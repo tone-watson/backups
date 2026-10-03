@@ -64,7 +64,7 @@ class CaptureTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.upstream_wheels = {}
         for profile, wheel_root in self.upstream_roots.items():
-            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/", "flood-map": "retained/", "hardware": "retained/", "noise-agent": "retained/", "instantmesh": "reused/", "riffusion": "retained/"}.get(profile, "")
+            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/", "flood-map": "retained/", "hardware": "retained/", "noise-agent": "retained/", "instantmesh": "reused/", "riffusion": "retained/", "rave": "retained/"}.get(profile, "")
             relative = prefix + "example-2.0-py3-none-any.whl"
             wheel = wheel_root / relative
             wheel.parent.mkdir(parents=True)
@@ -175,7 +175,7 @@ class CaptureTests(unittest.TestCase):
     def test_upstream_capture_archives_recipes_and_copies_only_locked_wheels(self):
         for wheel in self.upstream_wheels.values():
             wheel.with_name("unlisted-1.0-py3-none-any.whl").write_bytes(b"not needed")
-        for profile in ("instantmesh", "riffusion"):
+        for profile in ("instantmesh", "riffusion", "rave"):
             selected = self.upstream_wheels[profile]
             (self.upstream_roots[profile] / selected.name).write_bytes(b"unselected original")
         result = capture.capture(self.repo, self.destination)
@@ -185,6 +185,7 @@ class CaptureTests(unittest.TestCase):
             self.assertIn("deploy/upstream/flood-map/requirements.lock", archive.getnames())
             self.assertIn("deploy/upstream/instantmesh/requirements.lock", archive.getnames())
             self.assertIn("deploy/upstream/riffusion/requirements.lock", archive.getnames())
+            self.assertIn("deploy/upstream/rave/requirements.lock", archive.getnames())
         for profile, source in self.upstream_wheels.items():
             item = result["upstream"][profile]
             self.assertEqual(item["artifact_count"], 1)
@@ -196,7 +197,7 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
             self.assertEqual(source.stat().st_mode & 0o777, 0o644)
             self.assertFalse(target.with_name("unlisted-1.0-py3-none-any.whl").exists())
-        for profile, directory in (("instantmesh", "reused"), ("riffusion", "retained")):
+        for profile, directory in (("instantmesh", "reused"), ("riffusion", "retained"), ("rave", "retained")):
             copied = self.destination / "upstream" / profile / "wheelhouse"
             selected = self.upstream_wheels[profile]
             self.assertTrue((copied / directory / selected.name).is_file())
@@ -215,6 +216,18 @@ class CaptureTests(unittest.TestCase):
         receipt = json.loads((self.destination / "capture.json").read_text())
         self.assertEqual(receipt["status"], "incomplete")
         self.assertFalse((self.destination / "upstream/riffusion/wheelhouse").exists())
+
+    def test_uncommitted_rave_lock_cannot_replace_missing_committed_recipe(self):
+        lock = self.repo / "deploy/upstream/rave/requirements.lock"
+        payload = lock.read_bytes()
+        lock.unlink()
+        self.commit()
+        lock.write_bytes(payload)
+        with self.assertRaises(subprocess.CalledProcessError):
+            capture.capture(self.repo, self.destination)
+        receipt = json.loads((self.destination / "capture.json").read_text())
+        self.assertEqual(receipt["status"], "incomplete")
+        self.assertFalse((self.destination / "upstream/rave/wheelhouse").exists())
 
     def test_graphiti_profiles_share_one_bundle_and_keep_distinct_wheels(self):
         for profile in ("graphiti-root", "graphiti-mcp"):

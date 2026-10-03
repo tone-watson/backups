@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait / Flood Map / TikTok / Hardware / Noise Agent / InstantMesh / Riffusion uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / LivePortrait / Flood Map / TikTok / Hardware / Noise Agent / InstantMesh / Riffusion / RAVE uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -120,8 +120,8 @@ helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
 Uncommitted API edits are deliberately excluded. Commit and release the API's
-`riffusion` recipe before releasing this backup update or running its capture;
-the published `noise-agent` and `instantmesh` recipes must remain committed, and
+`rave` recipe before releasing this backup update or running its capture;
+the published `noise-agent`, `instantmesh` and `riffusion` recipes must remain committed, and
 the existing `graphiti-root` and `graphiti-mcp` recipes must also remain committed.
 A missing committed profile lock fails capture; a dirty working tree is not a
 substitute for the recorded API revision.
@@ -142,7 +142,7 @@ overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
 Stable Diffusion, Graphiti, ACE-Step, LivePortrait, Flood Map, TikTok Scraper,
-Hardware, Noise Agent, InstantMesh and Riffusion locks. These
+Hardware, Noise Agent, InstantMesh, Riffusion and RAVE locks. These
 include recovered native extensions, preserved editable-installation wheels
 and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
@@ -156,8 +156,9 @@ accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-hardware/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-riffusion/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-riffusion/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-rave/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
@@ -479,6 +480,26 @@ They do not establish GPU generation, application adoption or full workflow
 recovery. Preserve the original Conda environment pending its own acceptance and
 consumer audit. Commit and release the API recipe before this Backups update;
 a fresh owner-run root snapshot and its receipt must then be verified.
+
+
+## RAVE recovery
+
+RAVE's capture profile selects only local wheels named by the committed
+`deploy/upstream/rave/requirements.lock` for its exact 90-package baseline.
+The reviewed set contains 90 artifacts totaling **2,973,298,383 bytes**;
+each selected wheel must match its committed hash and remain inside
+`/srv/farm/.uv/migrations/2026-10-03-rave/wheels`. Independent verified copies go
+beneath `uv/api/upstream/rave/wheelhouse/`, preserving nested paths and excluding
+unselected artifacts. Capture neither installs packages nor imports RAVE.
+
+The existing managed Python 3.9.19 build 20240814 archive supplies the interpreter
+bytes; this profile adds no interpreter archive. Preserve the upstream source,
+training data, checkpoints, native system dependencies and Conda separately.
+Package capture does not establish training, model/export or consumer acceptance.
+Commit and release the API recipe before this Backups update, then refresh
+`sudo systemctl start farm-config-snapshot.service` and verify that invocation's
+receipt. No service restart, systemd reload, offsite-copy or full-restore claim
+is part of this update.
 
 
 ## Additional exact managed Python recovery archives
