@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.15 - 2026-10-03
+### CHANGED:
+- Capture five additional managed Python recovery bundles
+
+
 ## v1.1.14 - 2026-10-03
 ### CHANGED:
 - Capture InstantMesh locked Python recovery wheels
