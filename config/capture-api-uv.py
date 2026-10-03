@@ -32,6 +32,7 @@ UPSTREAM_WHEEL_ROOTS = {
     "tiktok-scraper": Path("/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels"),
     "hardware": Path("/srv/farm/.uv/migrations/2026-10-03-hardware/wheels"),
     "noise-agent": Path("/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels"),
+    "instantmesh": Path("/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
@@ -43,6 +44,7 @@ UPSTREAM_LOCKS = {
     "tiktok-scraper": ("requirements.lock",),
     "hardware": ("requirements.lock",),
     "noise-agent": ("requirements.lock",),
+    "instantmesh": ("requirements.lock",),
 }
 
 

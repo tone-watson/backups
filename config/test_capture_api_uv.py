@@ -60,7 +60,7 @@ class CaptureTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.upstream_wheels = {}
         for profile, wheel_root in self.upstream_roots.items():
-            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/", "flood-map": "retained/", "hardware": "retained/", "noise-agent": "retained/"}.get(profile, "")
+            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/", "flood-map": "retained/", "hardware": "retained/", "noise-agent": "retained/", "instantmesh": "reused/"}.get(profile, "")
             relative = prefix + "example-2.0-py3-none-any.whl"
             wheel = wheel_root / relative
             wheel.parent.mkdir(parents=True)
@@ -161,11 +161,14 @@ class CaptureTests(unittest.TestCase):
     def test_upstream_capture_archives_recipes_and_copies_only_locked_wheels(self):
         for wheel in self.upstream_wheels.values():
             wheel.with_name("unlisted-1.0-py3-none-any.whl").write_bytes(b"not needed")
+        instantmesh = self.upstream_wheels["instantmesh"]
+        (self.upstream_roots["instantmesh"] / instantmesh.name).write_bytes(b"unselected original")
         result = capture.capture(self.repo, self.destination)
         with tarfile.open(self.destination / "api-recipes.tar") as archive:
             self.assertIn("scripts/upstream_runtime.py", archive.getnames())
             self.assertIn("deploy/upstream/comfyui/requirements.lock", archive.getnames())
             self.assertIn("deploy/upstream/flood-map/requirements.lock", archive.getnames())
+            self.assertIn("deploy/upstream/instantmesh/requirements.lock", archive.getnames())
         for profile, source in self.upstream_wheels.items():
             item = result["upstream"][profile]
             self.assertEqual(item["artifact_count"], 1)
@@ -177,6 +180,9 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(target.stat().st_mode & 0o777, 0o600)
             self.assertEqual(source.stat().st_mode & 0o777, 0o644)
             self.assertFalse(target.with_name("unlisted-1.0-py3-none-any.whl").exists())
+        instantmesh_copy = self.destination / "upstream/instantmesh/wheelhouse"
+        self.assertTrue((instantmesh_copy / "reused" / instantmesh.name).is_file())
+        self.assertFalse((instantmesh_copy / instantmesh.name).exists())
         second = capture.capture(self.repo, self.destination)
         self.assertTrue(all(item["reused_wheels"] == 1 for item in second["upstream"].values()))
 

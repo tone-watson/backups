@@ -120,7 +120,8 @@ helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
 Uncommitted API edits are deliberately excluded. Commit and release the API's
-`noise-agent` recipe before releasing this backup update or running its capture;
+`noise-agent` and `instantmesh` recipes before releasing this backup update or
+running its capture;
 the existing `graphiti-root` and `graphiti-mcp` recipes must also remain committed.
 A missing committed profile lock fails capture; a dirty working tree is not a
 substitute for the recorded API revision.
@@ -140,8 +141,8 @@ export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
-Stable Diffusion, Graphiti, ACE-Step, LivePortrait, Flood Map, TikTok Scraper and
-Hardware and Noise Agent locks. These
+Stable Diffusion, Graphiti, ACE-Step, LivePortrait, Flood Map, TikTok Scraper,
+Hardware, Noise Agent and InstantMesh locks. These
 include recovered native extensions, preserved editable-installation wheels
 and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
@@ -153,16 +154,18 @@ accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-03-live-portrait/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels`,
 `/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-hardware/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-hardware/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
 Nothing is downloaded, installed or imported.
 
 Copies live under `uv/api/upstream/<profile>/wheelhouse/`, preserving nested paths
-such as ComfyUI's `mode-preserved/` and ACE-Step/LivePortrait/Flood Map/Hardware/Noise Agent
-`retained/`. `capture.json` records each original path, backup-relative
+such as ComfyUI's `mode-preserved/`, ACE-Step/LivePortrait/Flood Map/Hardware/Noise Agent
+`retained/`, and InstantMesh's `recovered/`, `recovered-large/` and `reused/`.
+`capture.json` records each original path, backup-relative
 filename, hash, byte count and
 referring lock, plus the lock
 hashes and copied/reused counts. Only lock-referenced wheels are added; older
@@ -419,3 +422,35 @@ Do not retire its Conda environment based on this Python-only snapshot.
 
 Release the API recipe before this Backups update, then refresh the configuration
 snapshot with the command above. No service restart or daemon reload is needed.
+
+
+### InstantMesh Python recovery
+
+Capture retains the 123 wheels selected by the committed
+`deploy/upstream/instantmesh/requirements.lock`, totaling 2,949,898,762 bytes.
+Copies live under `uv/api/upstream/instantmesh/wheelhouse/` and preserve nested
+paths including `recovered/`, `recovered-large/` and `reused/`. Only lock-selected
+files are copied from
+`/srv/farm/.uv/migrations/2026-10-03-instantmesh/wheels`; unused originals and
+other migration artifacts are excluded. Source and destination hashes are
+verified, and retained files are independent of source hardlinks.
+
+The API recipe and deployment guide are included from the recorded API commit.
+The original selected wheel manifest has SHA-256
+`d5d0739b5e59b28f31f48e65c6f8add45a0f2d7d54e3940e0cdc6d9d53eb276b`;
+see the [InstantMesh guide](/srv/farm/sys/api/docs/deployment/uv-instantmesh.md)
+for the Python 3.10.14/123-package baseline and acceptance receipts.
+
+This addition covers the Python recipe and wheel payloads, including retained
+package-native binaries. It does not capture the managed Python 3.10.14
+interpreter, independent CUDA toolkit, separate header overlay, host compiler
+and OS libraries, NVIDIA driver, upstream source/local assets or model weights.
+Those require separate recovery coverage. CPU/CLI-help parity and an isolated
+explicit-target extension build do not establish normal application JIT, GPU
+inference or full generation recovery. Preserve Conda pending the remaining
+acceptance and consumer checks.
+
+Commit and release the API recipe before this Backups update. Then refresh the
+root configuration snapshot with `sudo systemctl start farm-config-snapshot.service`
+and verify its receipt. Fixture/static artifact checks do not run that snapshot
+or establish off-host recovery. No service restart or systemd reload is required.
