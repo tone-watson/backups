@@ -31,6 +31,7 @@ UPSTREAM_WHEEL_ROOTS = {
     "flood-map": Path("/srv/farm/.uv/migrations/2026-10-03-flood-map/wheels"),
     "tiktok-scraper": Path("/srv/farm/.uv/migrations/2026-10-03-tiktok-scraper/wheels"),
     "hardware": Path("/srv/farm/.uv/migrations/2026-10-03-hardware/wheels"),
+    "noise-agent": Path("/srv/farm/.uv/migrations/2026-10-03-noise-agent/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
@@ -41,6 +42,7 @@ UPSTREAM_LOCKS = {
     "flood-map": ("requirements.lock",),
     "tiktok-scraper": ("requirements.lock",),
     "hardware": ("requirements.lock",),
+    "noise-agent": ("requirements.lock",),
 }
 
 

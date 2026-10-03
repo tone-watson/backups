@@ -60,7 +60,7 @@ class CaptureTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.upstream_wheels = {}
         for profile, wheel_root in self.upstream_roots.items():
-            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/", "flood-map": "retained/", "hardware": "retained/"}.get(profile, "")
+            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/", "live-portrait": "retained/", "flood-map": "retained/", "hardware": "retained/", "noise-agent": "retained/"}.get(profile, "")
             relative = prefix + "example-2.0-py3-none-any.whl"
             wheel = wheel_root / relative
             wheel.parent.mkdir(parents=True)

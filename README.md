@@ -85,10 +85,10 @@ A single disk image isn't the right model on Linux (hardware/driver drift, and ~
    write `/etc/nginx`, `/etc/cloudflared/config.yml` **+ the tunnel credential**, the
    farm `/etc/systemd/system` units and drop-ins, `crontab -l`, API uv recovery
    recipes and the reviewed wheelhouse, ComfyUI/Stable Diffusion/Graphiti/
-   ACE-Step/LivePortrait/Flood Map/TikTok Scraper/Hardware
+   ACE-Step/LivePortrait/Flood Map/TikTok Scraper/Hardware/Noise Agent
    runtime recipes and their hash-locked local wheels (Graphiti's two profiles
    share one verified 55-wheel bundle; ACE-Step adds 164 wheels, LivePortrait 122
-   Flood Map 29, TikTok Scraper 13 and Hardware 18),
+   Flood Map 29, TikTok Scraper 13, Hardware 18 and Noise Agent 68),
    the exact private Stable Diffusion service environment,
    `apt list --installed`, and the `/usr/local/bin/farm` symlink into
    `/var/backups/config-snapshot` (root-only `700`; credential `600`). See **`config/README.md`**
