@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.5 - 2026-10-03
+### CHANGED:
+- Retire obsolete API Conda backup export
+
+
 ## v1.1.4 - 2026-10-02
 ### CHANGED:
 - Back up the private Stable Diffusion service environment safely
