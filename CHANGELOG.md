@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.1.14 - 2026-10-03
+### CHANGED:
+- Capture InstantMesh locked Python recovery wheels
+
+
 ## v1.1.13 - 2026-10-03
 ### CHANGED:
 - Include Noise Agent locked Python wheels in recovery capture
