@@ -25,14 +25,12 @@ UPSTREAM_WHEEL_ROOTS = {
     "stable-diffusion": Path("/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels"),
     "graphiti": Path("/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels"),
     "ace-step": Path("/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels"),
-    "kitsu": Path("/srv/farm/.uv/migrations/2026-10-03-kitsu/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
     "stable-diffusion": ("requirements.lock", "requirements-overlays.lock"),
     "graphiti": ("graphiti-root/requirements.lock", "graphiti-mcp/requirements.lock"),
     "ace-step": ("requirements.lock",),
-    "kitsu": ("requirements.lock",),
 }
 
 

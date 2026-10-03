@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion / Graphiti / ACE-Step / Kitsu uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti / ACE-Step uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -140,15 +140,14 @@ export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
-Stable Diffusion, Graphiti, ACE-Step and Kitsu locks. These include recovered native
+Stable Diffusion, Graphiti and ACE-Step locks. These include recovered native
 extensions, preserved editable-installation wheels and ACE-Step's retained
 setuptools patch, which must not be replaced by arbitrary fresh builds. The only
 accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels`,
 `/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels`,
-`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-kitsu/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
@@ -188,19 +187,6 @@ ACE-Step artifact links to `/srv/farm/code/ACE-Step`; its matching source checko
 reviewed local customizations, private configuration and model weights require
 separate recovery. This wheel capture does not preserve or prove recovery of
 those files, and does not read application environments or run model code.
-
-Kitsu staging adds **132 unique wheels**, approximately 144.0 MiB, from the
-committed `deploy/upstream/kitsu/requirements.lock`, under
-`uv/api/upstream/kitsu/wheelhouse/`. The exact package artifacts can be restored
-offline once managed Python 3.8.19 and uv are available. This capture preserves
-the reviewed staging recipes and wheels; it does not install `/opt/zou/.venv`
-or establish that the two live Zou services have migrated. Final installation
-must rebuild console entry points at that path and provide readable runtime
-files for service account `zou`. Restore service configuration, `/etc/zou`,
-PostgreSQL data, previews and other application data separately. This capture
-does not read those private settings or application data and does not bundle
-system libraries or programs such as `libpq`, `ffmpeg`, `ffprobe` and `pg_dump`.
-See the API's Kitsu staging guide before attempting a service cutover.
 
 For the image services, published package-index and HTTPS artifacts remain
 represented by committed hash locks; their wheels are not duplicated by this

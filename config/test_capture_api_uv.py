@@ -268,37 +268,6 @@ class CaptureTests(unittest.TestCase):
             capture.capture(self.repo, self.destination)
         self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
 
-    def test_kitsu_staging_recipes_are_captured_without_a_live_runtime_profile(self):
-        staging = self.repo / "deploy/upstream/kitsu/staging.json"
-        staging.write_text(json.dumps({"status": "staged", "final_venv": "/opt/zou/.venv"}))
-        self.commit()
-        result = capture.capture(self.repo, self.destination)
-        kitsu = result["upstream"]["kitsu"]
-        self.assertEqual(kitsu["artifact_count"], 1)
-        self.assertEqual(kitsu["copied_wheels"], 1)
-        source = self.upstream_wheels["kitsu"]
-        target = self.destination / "upstream/kitsu/wheelhouse" / source.name
-        self.assertEqual(target.read_bytes(), source.read_bytes())
-        self.assertNotEqual(target.stat().st_ino, source.stat().st_ino)
-        self.assertEqual(target.stat().st_mode & 0o777, 0o600)
-        with tarfile.open(self.destination / "api-recipes.tar") as archive:
-            self.assertEqual(archive.extractfile("deploy/upstream/kitsu/staging.json").read(),
-                             staging.read_bytes())
-            self.assertIn("deploy/upstream/kitsu/requirements.lock", archive.getnames())
-            self.assertNotIn("deploy/upstream/kitsu/runtime.json", archive.getnames())
-        repeated = capture.capture(self.repo, self.destination)
-        self.assertEqual(repeated["upstream"]["kitsu"]["reused_wheels"], 1)
-
-    def test_kitsu_lock_must_exist_in_committed_revision(self):
-        lock = self.repo / "deploy/upstream/kitsu/requirements.lock"
-        prepared = lock.read_bytes()
-        lock.unlink()
-        self.commit()
-        lock.write_bytes(prepared)
-        with self.assertRaises(subprocess.CalledProcessError):
-            capture.capture(self.repo, self.destination)
-        self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
-
     def test_upstream_hardlink_is_replaced_and_corrupt_backup_repaired(self):
         source = self.upstream_wheels["comfyui"]
         target = self.destination / "upstream/comfyui/wheelhouse/mode-preserved" / source.name
