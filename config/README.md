@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion / Graphiti uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti / ACE-Step uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -120,9 +120,10 @@ helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
 Uncommitted API edits are deliberately excluded. Commit and release the API's
-`graphiti-root` and `graphiti-mcp` recipes before releasing this backup update or
-running its capture. A missing committed profile lock fails capture; a dirty
-working tree is not a substitute for the recorded API revision.
+`ace-step` recipe before releasing this backup update or running its capture;
+the existing `graphiti-root` and `graphiti-mcp` recipes must also remain committed.
+A missing committed profile lock fails capture; a dirty working tree is not a
+substitute for the recorded API revision.
 
 The accepted bundle currently lives at
 `/srv/farm/.uv/migrations/2026-10-01-api-audit/artifact-set.2obcd4ez`.
@@ -139,20 +140,23 @@ export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
 The same capture preserves the local wheels required by the committed ComfyUI,
-Stable Diffusion and Graphiti locks. These include recovered native extensions
-and Graphiti's preserved editable-installation wheel, which must not be replaced
-by arbitrary fresh builds. The only accepted source roots are
+Stable Diffusion, Graphiti and ACE-Step locks. These include recovered native
+extensions, preserved editable-installation wheels and ACE-Step's retained
+setuptools patch, which must not be replaced by arbitrary fresh builds. The only
+accepted source roots are
 `/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels`,
-`/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels` and
-`/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels`; files must have a
+`/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels`,
+`/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
 Nothing is downloaded, installed or imported.
 
 Copies live under `uv/api/upstream/<profile>/wheelhouse/`, preserving nested paths
-such as ComfyUI's `mode-preserved/`. `capture.json` records each original path,
-backup-relative filename, hash, byte count and referring lock, plus the lock
+such as ComfyUI's `mode-preserved/` and ACE-Step's `retained/`. `capture.json`
+records each original path, backup-relative filename, hash, byte count and
+referring lock, plus the lock
 hashes and copied/reused counts. Only lock-referenced wheels are added; older
 upstream copies may remain but are not part of the current recorded recovery set.
 The image-service recovery sets remain 28 ComfyUI wheels and 5 Stable Diffusion
@@ -167,6 +171,22 @@ Graphiti's root wheel retains the exact editable path to `/srv/farm/code/graphit
 its MCP profile independently retains installed Graphiti 0.14.0. Restore the
 matching upstream source and local modifications separately. This addition does
 not read or capture Graphiti `.env`, live process environments or Neo4j data.
+
+ACE-Step adds **164 unique wheels**, approximately 3.02 GiB, from the committed
+`deploy/upstream/ace-step/requirements.lock`, under
+`uv/api/upstream/ace-step/wheelhouse/`. The selected artifacts match the reviewed
+`/srv/farm/.uv/migrations/2026-10-03-ace-step/wheel-manifest-preserved.json`;
+capture uses the committed lock's exact paths and hashes, not a directory-wide
+copy of that evidence bundle. In particular, it retains the reviewed
+`retained/setuptools-80.9.0-py3-none-any.whl`, excluding the unpatched wheel at the
+bundle root unless a future committed lock explicitly selects it. Recovered
+editable/source artifacts and the pinned Typer overlay remain part of the
+recipe; restore them unchanged. Package installation is offline once the
+recipe's managed Python and uv prerequisites are available. The editable
+ACE-Step artifact links to `/srv/farm/code/ACE-Step`; its matching source checkout,
+reviewed local customizations, private configuration and model weights require
+separate recovery. This wheel capture does not preserve or prove recovery of
+those files, and does not read application environments or run model code.
 
 For the image services, published package-index and HTTPS artifacts remain
 represented by committed hash locks; their wheels are not duplicated by this
@@ -190,9 +210,12 @@ starting the restored services. Never restore by copying a relocatable `.venv`.
 For ComfyUI or Stable Diffusion, recover the upstream checkout, custom nodes or
 extensions and models separately. For Graphiti, separately recover its upstream
 checkout and reviewed local changes, private configuration and Neo4j data; this
-package capture does not establish graph-data or credential recovery. Restore
-each recorded upstream wheel beneath
-its exact original `wheel_root`, preserving the recorded relative filename and
+package capture does not establish graph-data or credential recovery. For
+ACE-Step, recover its matching source checkout, customizations, configuration
+and model weights separately before syncing the `ace-step` profile; its final
+runtime belongs at `/srv/farm/code/ACE-Step/.venv`. Restore each recorded
+upstream wheel beneath its exact original `wheel_root`, preserving the recorded
+relative filename and
 verifying its SHA-256. The archive includes the runtime manifest, baseline,
 payload checks, lock, validation helpers and deployment guide. Install that
 profile's specified managed Python and uv prerequisites, then run

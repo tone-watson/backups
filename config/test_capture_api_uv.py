@@ -57,7 +57,8 @@ class CaptureTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.upstream_wheels = {}
         for profile, wheel_root in self.upstream_roots.items():
-            relative = "mode-preserved/example-2.0-py3-none-any.whl" if profile == "comfyui" else "example-2.0-py3-none-any.whl"
+            prefix = {"comfyui": "mode-preserved/", "ace-step": "retained/"}.get(profile, "")
+            relative = prefix + "example-2.0-py3-none-any.whl"
             wheel = wheel_root / relative
             wheel.parent.mkdir(parents=True)
             wheel.write_bytes((profile + " inert bytes").encode())
@@ -212,6 +213,57 @@ class CaptureTests(unittest.TestCase):
         lock.unlink()
         self.commit()
         lock.write_bytes(content)  # Prepared but uncommitted is not recoverable HEAD.
+        with self.assertRaises(subprocess.CalledProcessError):
+            capture.capture(self.repo, self.destination)
+        self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+
+    def test_ace_step_retained_wheel_selected_without_unreviewed_original(self):
+        source = self.upstream_wheels["ace-step"]
+        original = self.upstream_roots["ace-step"] / source.name
+        original.write_bytes(b"unpatched registry wheel must not be substituted")
+        second = self.upstream_roots["ace-step"] / "dependency-1.0-py3-none-any.whl"
+        second.write_bytes(b"small synthetic indexed dependency")
+        sha256 = hashlib.sha256(second.read_bytes()).hexdigest()
+        lock = self.repo / "deploy/upstream/ace-step/requirements.lock"
+        with lock.open("a") as stream:
+            stream.write("dependency @ " + second.as_uri() + " --hash=sha256:" + sha256 + "\n")
+        self.commit()
+        result = capture.capture(self.repo, self.destination)
+        ace = result["upstream"]["ace-step"]
+        self.assertEqual(ace["artifact_count"], 2)
+        self.assertEqual(ace["copied_wheels"], 2)
+        self.assertEqual(ace["lock_sha256"]["requirements.lock"],
+                         hashlib.sha256(lock.read_bytes()).hexdigest())
+        wheelhouse = self.destination / "upstream/ace-step/wheelhouse"
+        retained = wheelhouse / "retained" / source.name
+        self.assertEqual(retained.read_bytes(), source.read_bytes())
+        self.assertNotEqual(retained.stat().st_ino, source.stat().st_ino)
+        self.assertEqual(retained.stat().st_mode & 0o777, 0o600)
+        self.assertFalse((wheelhouse / original.name).exists())
+        self.assertEqual((wheelhouse / second.name).read_bytes(), second.read_bytes())
+        with tarfile.open(self.destination / "api-recipes.tar") as archive:
+            self.assertEqual(archive.extractfile("deploy/upstream/ace-step/requirements.lock").read(),
+                             lock.read_bytes())
+        repeated = capture.capture(self.repo, self.destination)
+        self.assertEqual(repeated["upstream"]["ace-step"]["reused_wheels"], 2)
+        self.assertEqual(repeated["copied_wheels"], 0)
+        for profile in ("comfyui", "stable-diffusion", "graphiti"):
+            self.assertEqual(repeated["upstream"][profile]["artifact_count"], 1)
+            self.assertEqual(repeated["upstream"][profile]["reused_wheels"], 1)
+
+    def test_ace_step_corrupt_retained_payload_invalidates_previous_capture(self):
+        capture.capture(self.repo, self.destination)
+        self.upstream_wheels["ace-step"].write_bytes(b"unexpected payload change")
+        with self.assertRaisesRegex(ValueError, "hash/size"):
+            capture.capture(self.repo, self.destination)
+        self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+
+    def test_ace_step_lock_must_exist_in_committed_revision(self):
+        lock = self.repo / "deploy/upstream/ace-step/requirements.lock"
+        prepared = lock.read_bytes()
+        lock.unlink()
+        self.commit()
+        lock.write_bytes(prepared)
         with self.assertRaises(subprocess.CalledProcessError):
             capture.capture(self.repo, self.destination)
         self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
