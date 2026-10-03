@@ -23,10 +23,12 @@ RECIPES = (
 UPSTREAM_WHEEL_ROOTS = {
     "comfyui": Path("/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels"),
     "stable-diffusion": Path("/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels"),
+    "graphiti": Path("/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels"),
 }
 UPSTREAM_LOCKS = {
     "comfyui": ("requirements.lock",),
     "stable-diffusion": ("requirements.lock", "requirements-overlays.lock"),
+    "graphiti": ("graphiti-root/requirements.lock", "graphiti-mcp/requirements.lock"),
 }
 
 
@@ -43,7 +45,7 @@ def local_wheels(lock, wheel_root):
         if line.endswith("\\"):
             continue
         requirement, logical = logical, ""
-        # Both current recipes use version pins, HTTPS wheels or file:// wheels.
+        # Current recipes use version pins, HTTPS wheels or file:// wheels.
         # Refuse extra include/options and unsupported local path syntax.
         match = re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9._-]*(?:==[^\s]+|\s+@\s+(\S+))"
@@ -78,7 +80,9 @@ def capture_upstream(repo, revision, destination):
         artifacts = {}
         locks = {}
         for filename in UPSTREAM_LOCKS[profile]:
-            relative = "deploy/upstream/" + profile + "/" + filename
+            # Graphiti's two profiles share one bundle; copy shared wheels once.
+            prefix = "" if profile == "graphiti" else profile + "/"
+            relative = "deploy/upstream/" + prefix + filename
             lock = git(repo, "show", revision + ":" + relative)
             locks[filename] = hashlib.sha256(lock).hexdigest()
             for source, sha256 in local_wheels(lock, wheel_root):

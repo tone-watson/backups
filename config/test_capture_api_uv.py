@@ -64,15 +64,16 @@ class CaptureTests(unittest.TestCase):
             wheel.chmod(0o644)
             self.upstream_wheels[profile] = wheel
             sha256 = hashlib.sha256(wheel.read_bytes()).hexdigest()
-            recipe = self.repo / "deploy/upstream" / profile
-            recipe.mkdir(parents=True)
             entry = "example @ " + wheel.as_uri() + " --hash=sha256:" + sha256 + "\n"
             if profile == "comfyui":
                 entry = entry.replace(" --hash", " \\\n    --hash")
             remote = "remote==1.0 --hash=sha256:" + "a" * 64 + "\n"
-            (recipe / "requirements.lock").write_text("# fixture\n" + entry + remote)
-            if "requirements-overlays.lock" in capture.UPSTREAM_LOCKS[profile]:
-                (recipe / "requirements-overlays.lock").write_text(entry)
+            prefix = "" if profile == "graphiti" else profile + "/"
+            for filename in capture.UPSTREAM_LOCKS[profile]:
+                lock = self.repo / "deploy/upstream" / (prefix + filename)
+                lock.parent.mkdir(parents=True, exist_ok=True)
+                lock.write_text(entry if filename == "requirements-overlays.lock"
+                                else "# fixture\n" + entry + remote)
         subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
         subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-qm", "fixture"], check=True)
@@ -166,6 +167,54 @@ class CaptureTests(unittest.TestCase):
             self.assertFalse(target.with_name("unlisted-1.0-py3-none-any.whl").exists())
         second = capture.capture(self.repo, self.destination)
         self.assertTrue(all(item["reused_wheels"] == 1 for item in second["upstream"].values()))
+
+    def test_graphiti_profiles_share_one_bundle_and_keep_distinct_wheels(self):
+        for profile in ("graphiti-root", "graphiti-mcp"):
+            source = self.upstream_roots["graphiti"] / (profile + "-1.0-py3-none-any.whl")
+            source.write_bytes((profile + " unique fixture").encode())
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            lock = self.repo / "deploy/upstream" / profile / "requirements.lock"
+            with lock.open("a") as stream:
+                stream.write(profile + " @ " + source.as_uri() + " --hash=sha256:" + digest + "\n")
+        self.commit()
+        result = capture.capture(self.repo, self.destination)
+        graphiti = result["upstream"]["graphiti"]
+        self.assertEqual(graphiti["artifact_count"], 3)
+        self.assertEqual(graphiti["copied_wheels"], 3)
+        shared = next(item for item in graphiti["artifacts"]
+                      if item["filename"] == self.upstream_wheels["graphiti"].name)
+        self.assertEqual(shared["locks"], ["graphiti-root/requirements.lock",
+                                            "graphiti-mcp/requirements.lock"])
+        wheelhouse = self.destination / "upstream/graphiti/wheelhouse"
+        self.assertEqual(len(list(wheelhouse.glob("*.whl"))), 3)
+        with tarfile.open(self.destination / "api-recipes.tar") as archive:
+            for profile in ("graphiti-root", "graphiti-mcp"):
+                self.assertIn("deploy/upstream/" + profile + "/requirements.lock", archive.getnames())
+        second = capture.capture(self.repo, self.destination)
+        self.assertEqual(second["upstream"]["graphiti"]["reused_wheels"], 3)
+        self.assertEqual(second["copied_wheels"], 0)
+        self.assertEqual(second["upstream"]["comfyui"]["artifact_count"], 1)
+        self.assertEqual(second["upstream"]["stable-diffusion"]["artifact_count"], 1)
+
+    def test_graphiti_conflicting_committed_shared_hash_fails_closed(self):
+        lock = self.repo / "deploy/upstream/graphiti-mcp/requirements.lock"
+        source_hash = hashlib.sha256(self.upstream_wheels["graphiti"].read_bytes()).hexdigest()
+        lock.write_text(lock.read_text().replace(source_hash, "0" * 64))
+        self.assertEqual(capture.capture(self.repo, self.destination)["status"], "passed")
+        self.commit()
+        with self.assertRaisesRegex(ValueError, "Conflicting upstream wheel hashes"):
+            capture.capture(self.repo, self.destination)
+        self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
+
+    def test_graphiti_requires_both_locks_in_committed_api_revision(self):
+        lock = self.repo / "deploy/upstream/graphiti-mcp/requirements.lock"
+        content = lock.read_bytes()
+        lock.unlink()
+        self.commit()
+        lock.write_bytes(content)  # Prepared but uncommitted is not recoverable HEAD.
+        with self.assertRaises(subprocess.CalledProcessError):
+            capture.capture(self.repo, self.destination)
+        self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")
 
     def test_upstream_hardlink_is_replaced_and_corrupt_backup_repaired(self):
         source = self.upstream_wheels["comfyui"]

@@ -12,7 +12,7 @@ complete: the off-box sync already carries the irreplaceable **bytes**
 | farm systemd units | locally-defined `/etc/systemd/system/*.{service,timer}` and their drop-in directories (not vendor symlinks) | `systemd/` |
 | crontabs | `crontab -l` for the owner + root | `crontab/` |
 | API uv recovery | committed API and upstream runtime recipes + accepted API receipt, lock and 147 wheel files | `uv/api/` |
-| ComfyUI / Stable Diffusion uv recovery | hash-verified local wheels referenced by the committed upstream locks | `uv/api/upstream/` |
+| ComfyUI / Stable Diffusion / Graphiti uv recovery | hash-verified local wheels referenced by the committed upstream locks; both Graphiti profiles share one wheel bundle | `uv/api/upstream/` |
 | Stable Diffusion service credential | exact `/srv/farm/private/stable-diffusion/service.env` file | `private/stable-diffusion/service.env` |
 | OS packages (recipe) | `apt list --installed` | `apt-list.txt` |
 | provenance | `/usr/local/bin/farm` symlink, capture manifest | `farm-symlink.txt`, `manifest.json` |
@@ -119,7 +119,10 @@ helpers (including `scripts/upstream_runtime.*`), `deploy/runtime`,
 `deploy/upstream`, native-build input recipes, deployment configuration,
 `lib/testing` validation/build helpers and deployment documentation into
 `uv/api/api-recipes.tar`. `capture.json` records the exact commit and archive hash.
-Uncommitted API edits are deliberately excluded.
+Uncommitted API edits are deliberately excluded. Commit and release the API's
+`graphiti-root` and `graphiti-mcp` recipes before releasing this backup update or
+running its capture. A missing committed profile lock fails capture; a dirty
+working tree is not a substitute for the recorded API revision.
 
 The accepted bundle currently lives at
 `/srv/farm/.uv/migrations/2026-10-01-api-audit/artifact-set.2obcd4ez`.
@@ -135,11 +138,13 @@ environment. Each run clears the obsolete `conda/` snapshot subtree so an old
 export cannot appear current. The reviewed uv artifacts and installed service
 overrides define runtime recovery.
 
-The same capture preserves the local wheels required by the committed ComfyUI
-and Stable Diffusion locks. These include recovered native extensions that cannot
-be replaced by an arbitrary fresh source build. The only accepted source roots
-are `/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels` and
-`/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels`; files must have a
+The same capture preserves the local wheels required by the committed ComfyUI,
+Stable Diffusion and Graphiti locks. These include recovered native extensions
+and Graphiti's preserved editable-installation wheel, which must not be replaced
+by arbitrary fresh builds. The only accepted source roots are
+`/srv/farm/.uv/migrations/2026-10-02-comfyui/wheels`,
+`/srv/farm/.uv/migrations/2026-10-02-stable-diffusion/wheels` and
+`/srv/farm/.uv/migrations/2026-10-03-graphiti/wheels`; files must have a
 single SHA-256 in their lock, remain inside the corresponding canonical root and
 be regular files. Symlink sources or directories are refused. Each wheel is
 copied using the same independent-file verification as the API wheelhouse.
@@ -150,10 +155,23 @@ such as ComfyUI's `mode-preserved/`. `capture.json` records each original path,
 backup-relative filename, hash, byte count and referring lock, plus the lock
 hashes and copied/reused counts. Only lock-referenced wheels are added; older
 upstream copies may remain but are not part of the current recorded recovery set.
-At introduction this is 28 ComfyUI wheels and 5 Stable Diffusion wheels. Published
-package-index and HTTPS artifacts are represented by the committed hash locks;
-their wheels are not duplicated by this upstream capture. The recovery set is
-therefore not a fully offline installer.
+The image-service recovery sets remain 28 ComfyUI wheels and 5 Stable Diffusion
+wheels. Graphiti adds **55 unique wheels**, approximately 46.4 MiB, from the two
+committed locks at `deploy/upstream/graphiti-root/requirements.lock` and
+`deploy/upstream/graphiti-mcp/requirements.lock`. Its 31-package root and
+49-package MCP profiles share 25 wheels; these are copied once under
+`uv/api/upstream/graphiti/wheelhouse/`, with both referring locks recorded.
+All Graphiti package artifacts are local hash-locked wheels, permitting offline
+package installation once its managed Python and uv prerequisites are restored.
+Graphiti's root wheel retains the exact editable path to `/srv/farm/code/graphiti`;
+its MCP profile independently retains installed Graphiti 0.14.0. Restore the
+matching upstream source and local modifications separately. This addition does
+not read or capture Graphiti `.env`, live process environments or Neo4j data.
+
+For the image services, published package-index and HTTPS artifacts remain
+represented by committed hash locks; their wheels are not duplicated by this
+upstream capture. The overall recovery set is therefore not a fully offline
+installer.
 
 A failed capture is logged as DR-critical. When a capture has started but fails,
 `uv/api/capture.json` remains `status: incomplete`; require `status: passed` and no
@@ -170,15 +188,22 @@ path. Run `sh scripts/runtime.sh sync` and `check` as the Farm owner before
 starting the restored services. Never restore by copying a relocatable `.venv`.
 
 For ComfyUI or Stable Diffusion, recover the upstream checkout, custom nodes or
-extensions and models separately. Restore each recorded upstream wheel beneath
+extensions and models separately. For Graphiti, separately recover its upstream
+checkout and reviewed local changes, private configuration and Neo4j data; this
+package capture does not establish graph-data or credential recovery. Restore
+each recorded upstream wheel beneath
 its exact original `wheel_root`, preserving the recorded relative filename and
 verifying its SHA-256. The archive includes the runtime manifest, baseline,
 payload checks, lock, validation helpers and deployment guide. Install that
 profile's specified managed Python and uv prerequisites, then run
 `sh scripts/upstream_runtime.sh <profile> sync` and `check` from the restored API
 checkout with the application stopped. Review the captured profile deployment
-guide before starting services. Backup capture alone does not establish live GPU
-acceptance; retain the deployment guide's separate acceptance records.
+guide before starting services. For the shared Graphiti wheel bundle, restore
+both profiles with `graphiti-root` and `graphiti-mcp` separately; their final
+runtimes remain `/srv/farm/code/graphiti/.venv` and
+`/srv/farm/code/graphiti/mcp_server/.venv`. Backup capture alone does not establish
+live GPU or Graphiti MCP/database acceptance; retain the deployment guide's
+separate acceptance records.
 
 Validation of this change uses temporary fixture files, not the root snapshot:
 
