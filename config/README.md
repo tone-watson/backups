@@ -277,3 +277,9 @@ This restores the required environment file directly; the credential does not
 need to be extracted from the historical base unit. Do not print the file during
 verification. The existing encrypted-off-box requirements apply to this secret
 as well; this change neither starts a snapshot nor configures a transfer.
+
+Kitsu is being retired at the owner's request, rather than migrated. Its
+prepared wheel-capture extension was withdrawn. Follow the API's
+`docs/deployment/kitsu-retirement.md`; after removing its two units and routing,
+refresh the root snapshot so recovery does not recreate the retired host.
+PostgreSQL database `zoudb` deletion remains an owner-run operation.
