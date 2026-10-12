@@ -79,6 +79,9 @@ fi
 # --backup-dir: preserve replaced/deleted files. Database snapshots can total
 # multiple GiB; four hours allows the capped upload to finish and retry.
 run_dropbox_upload 4h "$SRC" "$DEST" \
+    --exclude '/.incomplete-*/**' \
+    --exclude '/.backup-archive-*' \
+    --exclude '/.backup.lock' \
     --backup-dir "$ARCHIVE"
 
 date +%s > "$STAMP" 2>/dev/null || true   # record off-box success time for freshness monitoring

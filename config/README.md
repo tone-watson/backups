@@ -47,6 +47,25 @@ sudo cat /var/backups/config-snapshot/manifest.json # verify what was captured
 Timer runs daily at **02:45**, ahead of the 03:00 dbops DB backup. Log:
 `/var/log/farm-config-snapshot.log`.
 
+### Completion contract
+
+`manifest.json` is atomically replaced with `status: incomplete` before capture
+changes the existing snapshot. A completed required capture publishes
+`status: passed` and `failure_count: 0`, then atomically updates the success
+heartbeat. Capture, permission, receipt, or heartbeat failures return nonzero;
+failed captures leave the previous success heartbeat unchanged. Only genuinely
+optional omissions, such as an absent owner crontab, can produce a successful
+receipt with warnings. Crontab query/permission errors are capture failures.
+
+The directory is locked against concurrent snapshot writers. This is an atomic
+receipt contract, not an atomic replacement of the entire snapshot tree: a failed
+run can leave partial current configuration alongside retained runtime artifacts.
+Consumers must require the completed receipt and must not infer completeness
+from directory existence or an older heartbeat. A reader that needs a stable
+tree must hold a shared `flock` on the snapshot directory while reading it.
+The reviewed uv helper still hash-checks and reuses unchanged independent
+artifacts; shell permission updates never traverse its retained subtree.
+
 ### Getting it off-box
 
 The existing `rclone/databases-to-dropbox.sh` only syncs `/var/backups/data/databases`.
@@ -244,7 +263,8 @@ installer.
 A failed capture is logged as DR-critical. When a capture has started but fails,
 `uv/api/capture.json` remains `status: incomplete`; require `status: passed` and no
 uv warning in the top-level manifest before considering this recovery set usable.
-The existing snapshot command still exits zero for warnings; inspect its report.
+The top-level manifest must also have `status: passed` and `failure_count: 0`;
+required capture failures return nonzero and do not update the success heartbeat.
 The snapshot includes the accepted API wheel set and locked local upstream
 wheels, not installed environments,
 model weights, or the uv executable. Separate exact installed-interpreter archives
@@ -281,6 +301,7 @@ Validation of this change uses temporary fixture files, not the root snapshot:
 
 ```sh
 /usr/bin/python3 -I -S -B config/test_capture_api_uv.py
+/usr/bin/python3 -I -S -B config/test_snapshot.py
 bash -n config/snapshot.sh
 ```
 

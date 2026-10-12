@@ -53,12 +53,14 @@ OWNER_USER="gradywoodruff"
 NGINX_SRC="/etc/nginx"
 CLOUDFLARED_SRC="/etc/cloudflared"
 SYSTEMD_SRC="/etc/systemd/system"
+FARM_LINK_SRC="/usr/local/bin/farm"
 
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 # Track per-capture outcome so one missing piece doesn't abort the whole snapshot
 WARNINGS=()
 CAPTURED=()
+FAILURES=()
 
 log() {
     local level="$1"; shift
@@ -73,7 +75,66 @@ warn() { WARNINGS+=("$1"); log "WARN" "  ${YELLOW}⚠ $1${NC}"; }
 ok()   { CAPTURED+=("$1"); log "INFO" "  ${GREEN}✓ $1${NC}"; }
 # crit: a warning that is ALSO DR-critical — the irreplaceable identity (cloudflared
 # tunnel credential, nginx/cloudflared config) failed to capture; keep that distinction in the local log.
-crit() { warn "DR-critical: $1"; }
+crit() { FAILURES+=("$1"); warn "DR-critical: $1"; }
+
+# Publish receipts atomically, including before any old capture is replaced.
+# json.dumps handles quotes/newlines in paths and avoids an invalid success receipt.
+write_manifest() {
+    /usr/bin/python3 -I -S -B - "$SNAP_DIR" "$TIMESTAMP" \
+        "$(hostname 2>/dev/null || echo unknown)" "$1" \
+        "${#CAPTURED[@]}" "${CAPTURED[@]}" \
+        "${#WARNINGS[@]}" "${WARNINGS[@]}" \
+        "${#FAILURES[@]}" "${FAILURES[@]}" <<'PY'
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+
+directory, timestamp, host, status = sys.argv[1:5]
+arguments = iter(sys.argv[5:])
+captured, warnings, failures = [[next(arguments) for _ in range(int(next(arguments)))]
+                                for _ in range(3)]
+receipt = {"schema": "farm.config-snapshot/1", "status": status,
+           "timestamp": timestamp, "host": host, "snapshot_dir": directory,
+           "captured": captured, "warnings": warnings, "warning_count": len(warnings),
+           "failures": failures, "failure_count": len(failures)}
+descriptor, temporary = tempfile.mkstemp(prefix=".manifest-", dir=directory)
+try:
+    with os.fdopen(descriptor, "w") as stream:
+        json.dump(receipt, stream, indent=2)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, Path(directory) / "manifest.json")
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+
+write_success_stamp() {
+    /usr/bin/python3 -I -S -B - "$STAMP_FILE" <<'PY'
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+
+destination = Path(sys.argv[1])
+descriptor, temporary = tempfile.mkstemp(prefix=".config-snapshot-stamp-", dir=destination.parent)
+try:
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(str(int(time.time())) + "\n")
+        stream.flush()
+        os.fchmod(stream.fileno(), 0o644)
+        os.fsync(stream.fileno())
+    os.replace(temporary, destination)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
 
 # Must be root (needed to read /etc/cloudflared)
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
@@ -85,14 +146,25 @@ log "INFO" "${GREEN}=== Config snapshot starting ($TIMESTAMP) ===${NC}"
 
 # Create the snapshot dir, root-only (700). Recreate the per-run subdirs cleanly so
 # a removed source file doesn't linger in the snapshot.
-mkdir -p "$SNAP_DIR"
-chown root:root "$SNAP_DIR"
-chmod 700 "$SNAP_DIR"
+if [ -L "$SNAP_DIR" ] || ! mkdir -p "$SNAP_DIR" \
+    || ! chown root:root "$SNAP_DIR" || ! chmod 700 "$SNAP_DIR"; then
+    log "ERROR" "${RED}Cannot prepare root-only snapshot directory.${NC}"
+    exit 1
+fi
+# Lock the directory itself: there is no lock-file symlink or inode to replace.
+if ! exec {SNAPSHOT_LOCK}<"$SNAP_DIR" || ! flock -n "$SNAPSHOT_LOCK"; then
+    log "ERROR" "${RED}Cannot lock snapshot directory; another capture may be running.${NC}"
+    exit 1
+fi
+if ! write_manifest incomplete; then
+    log "ERROR" "${RED}Cannot record an incomplete capture; snapshot contents were not replaced.${NC}"
+    exit 1
+fi
 # uv is retained separately; do not recopy unchanged wheels on every run.
 # Clear the obsolete conda snapshot subtree too; retired runtimes are not exported.
 for sub in nginx cloudflared systemd crontab conda private; do
-    rm -rf "${SNAP_DIR:?}/$sub"
-    mkdir -p "$SNAP_DIR/$sub"
+    rm -rf "${SNAP_DIR:?}/$sub" || crit "cannot clear snapshot subtree: $sub"
+    mkdir -p "$SNAP_DIR/$sub" || crit "cannot create snapshot subtree: $sub"
 done
 
 # --- 1. nginx ---------------------------------------------------------------
@@ -102,9 +174,11 @@ if [ -d "$NGINX_SRC" ]; then
     # and the shared snippet(s) round out a working restore. -L deref'd so the
     # sites-enabled symlinks land as real files in the snapshot.
     for item in sites-available sites-enabled nginx.conf conf.d cors-headers.conf mime.types; do
-        if [ -e "$NGINX_SRC/$item" ]; then
+        if [ -e "$NGINX_SRC/$item" ] || [ -L "$NGINX_SRC/$item" ]; then
             cp -aL "$NGINX_SRC/$item" "$SNAP_DIR/nginx/" 2>/dev/null \
-                && ok "nginx/$item" || warn "nginx/$item copy failed"
+                && ok "nginx/$item" || crit "nginx/$item copy failed"
+        elif [[ "$item" == sites-available || "$item" == sites-enabled || "$item" == nginx.conf ]]; then
+            crit "nginx/$item not found"
         fi
     done
 else
@@ -122,12 +196,15 @@ if [ -d "$CLOUDFLARED_SRC" ]; then
     fi
     # The tunnel credential(s): <UUID>.json — the irreplaceable secret.
     cred_count=0
-    while IFS= read -r cred; do
-        [ -n "$cred" ] || continue
+    shopt -s nullglob
+    for cred in "$CLOUDFLARED_SRC"/*.json; do
+        [ -f "$cred" ] && [ ! -L "$cred" ] || continue
         cp -a "$cred" "$SNAP_DIR/cloudflared/" 2>/dev/null || { crit "credential $(basename "$cred") copy failed"; continue; }
-        chmod 600 "$SNAP_DIR/cloudflared/$(basename "$cred")"
+        chmod 600 "$SNAP_DIR/cloudflared/$(basename "$cred")" \
+            || { crit "credential $(basename "$cred") permissions failed"; continue; }
         cred_count=$((cred_count + 1))
-    done < <(find "$CLOUDFLARED_SRC" -maxdepth 1 -name '*.json' -type f 2>/dev/null)
+    done
+    shopt -u nullglob
     if [ "$cred_count" -gt 0 ]; then
         ok "cloudflared tunnel credential(s): $cred_count (chmod 600)"
     else
@@ -145,7 +222,7 @@ for unit in "$SYSTEMD_SRC"/*.service "$SYSTEMD_SRC"/*.timer; do
     # Only real files: vendor/enabled symlinks point into /lib and are regenerated
     # by `systemctl enable`. The regular files here are THIS box's own unit defs.
     [ -f "$unit" ] && [ ! -L "$unit" ] || continue
-    cp -a "$unit" "$SNAP_DIR/systemd/" 2>/dev/null && unit_count=$((unit_count + 1)) || warn "systemd/$(basename "$unit") copy failed"
+    cp -a "$unit" "$SNAP_DIR/systemd/" 2>/dev/null && unit_count=$((unit_count + 1)) || crit "systemd/$(basename "$unit") copy failed"
 done
 # Preserve runtime overrides and delegated-resource settings as well as bases.
 for dropin in "$SYSTEMD_SRC"/*.service.d "$SYSTEMD_SRC"/*.timer.d; do
@@ -157,25 +234,27 @@ shopt -u nullglob
 if [ "$unit_count" -gt 0 ]; then
     ok "systemd units: $unit_count locally-defined .service/.timer"
 else
-    warn "no locally-defined systemd units captured"
+    crit "no locally-defined systemd units captured"
 fi
 
 # --- 4. crontab (owner + root) ---------------------------------------------
 log "INFO" "${CYAN}Capturing crontabs...${NC}"
 if command -v crontab >/dev/null 2>&1; then
-    if crontab -l -u "$OWNER_USER" > "$SNAP_DIR/crontab/${OWNER_USER}.cron" 2>/dev/null; then
-        ok "crontab/${OWNER_USER}.cron"
-    else
-        echo "# no crontab for $OWNER_USER at $TIMESTAMP" > "$SNAP_DIR/crontab/${OWNER_USER}.cron"
-        warn "no crontab for $OWNER_USER (empty placeholder written)"
-    fi
-    if crontab -l -u root > "$SNAP_DIR/crontab/root.cron" 2>/dev/null; then
-        ok "crontab/root.cron"
-    else
-        echo "# no crontab for root at $TIMESTAMP" > "$SNAP_DIR/crontab/root.cron"
-    fi
+    for cron_user in "$OWNER_USER" root; do
+        cron_error="$SNAP_DIR/crontab/.${cron_user}.error"
+        if LC_ALL=C crontab -l -u "$cron_user" > "$SNAP_DIR/crontab/${cron_user}.cron" 2> "$cron_error"; then
+            ok "crontab/${cron_user}.cron"
+        elif grep -Fxq "no crontab for $cron_user" "$cron_error"; then
+            echo "# no crontab for $cron_user at $TIMESTAMP" > "$SNAP_DIR/crontab/${cron_user}.cron" \
+                || crit "crontab/$cron_user placeholder write failed"
+            [ "$cron_user" = root ] || warn "no crontab for $cron_user (empty placeholder written)"
+        else
+            crit "crontab/$cron_user capture failed"
+        fi
+        rm -f "$cron_error" || crit "cannot clear crontab error file for $cron_user"
+    done
 else
-    warn "crontab command not available"
+    crit "crontab command not available"
 fi
 
 # --- 5. reviewed API uv recovery artifacts ---------------------------------
@@ -203,44 +282,53 @@ if command -v apt >/dev/null 2>&1; then
     if apt list --installed > "$SNAP_DIR/apt-list.txt" 2>/dev/null && [ -s "$SNAP_DIR/apt-list.txt" ]; then
         ok "apt-list.txt ($(grep -c '/' "$SNAP_DIR/apt-list.txt" 2>/dev/null || echo '?') packages)"
     else
-        warn "apt list --installed failed"
+        crit "apt list --installed failed"
     fi
 elif command -v dpkg >/dev/null 2>&1; then
-    dpkg -l > "$SNAP_DIR/apt-list.txt" 2>/dev/null && ok "apt-list.txt (dpkg -l fallback)" || warn "dpkg -l failed"
+    if dpkg -l > "$SNAP_DIR/apt-list.txt" 2>/dev/null && [ -s "$SNAP_DIR/apt-list.txt" ]; then
+        ok "apt-list.txt (dpkg -l fallback)"
+    else
+        crit "dpkg -l failed"
+    fi
 else
-    warn "neither apt nor dpkg available"
+    crit "neither apt nor dpkg available"
 fi
 
 # --- 7. small provenance bits ----------------------------------------------
-ls -la /usr/local/bin/farm > "$SNAP_DIR/farm-symlink.txt" 2>/dev/null || true
-
-# --- manifest --------------------------------------------------------------
-captured_json=$(printf '"%s",' "${CAPTURED[@]}" | sed 's/,$//')
-warnings_json=$(printf '"%s",' "${WARNINGS[@]}" | sed 's/,$//')
-cat > "$SNAP_DIR/manifest.json" <<EOF
-{
-  "timestamp": "$TIMESTAMP",
-  "host": "$(hostname 2>/dev/null || echo unknown)",
-  "snapshot_dir": "$SNAP_DIR",
-  "captured": [${captured_json}],
-  "warnings": [${warnings_json}],
-  "warning_count": ${#WARNINGS[@]}
-}
-EOF
+ls -la "$FARM_LINK_SRC" > "$SNAP_DIR/farm-symlink.txt" 2>/dev/null \
+    || warn "Farm launcher provenance unavailable"
 
 # Lock down everything we just wrote: dir tree 700/600, no group/other access.
 # uv files are independently created/repaired as 600 by capture-api-uv.py.
 # Exclude that retained subtree even after capture failure: blindly chmod/chown
 # on a pre-existing hardlink could change a source wheel's metadata.
-find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -exec chown -h root:root {} +
-find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -type d -exec chmod 700 {} +
-find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -type f -exec chmod 600 {} +
+find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -exec chown -h root:root {} + \
+    || crit "snapshot ownership lockdown failed"
+find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -type d -exec chmod 700 {} + \
+    || crit "snapshot directory permissions failed"
+find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -type f -exec chmod 600 {} + \
+    || crit "snapshot file permissions failed"
+
+capture_status=passed
+[ "${#FAILURES[@]}" -eq 0 ] || capture_status=incomplete
+if ! write_manifest "$capture_status"; then
+    log "ERROR" "${RED}Cannot publish capture receipt; success heartbeat was not updated.${NC}"
+    exit 1
+fi
+if [ "${#FAILURES[@]}" -gt 0 ]; then
+    log "ERROR" "${RED}=== Config snapshot incomplete — ${#FAILURES[@]} required capture(s) failed ===${NC}"
+    log "ERROR" "Inspect $SNAP_DIR/manifest.json; success heartbeat was not updated."
+    exit 1
+fi
 
 # Freshness heartbeat for monitoring: a world-readable success stamp OUTSIDE the
 # 700 root-only snapshot dir (it leaks only a timestamp), so the unprivileged
 # health-check can tell whether this DR snapshot is still running.
-date +%s > "$STAMP_FILE" 2>/dev/null || true
-chmod 644 "$STAMP_FILE" 2>/dev/null || true
+if ! write_success_stamp; then
+    crit "success heartbeat could not be published"
+    write_manifest incomplete || log "ERROR" "Cannot mark capture receipt incomplete."
+    exit 1
+fi
 
 # Summary
 log "INFO" ""
@@ -252,7 +340,6 @@ else
     log "INFO" "${YELLOW}=== Config snapshot complete with ${#WARNINGS[@]} warning(s) ===${NC}"
     for w in "${WARNINGS[@]}"; do log "WARN" "  • $w"; done
     log "INFO" "Snapshot: $SNAP_DIR (root-only 700; credential 600)"
-    # Warnings are non-fatal (e.g. an optional capture missing). Exit 0 so the
-    # timer doesn't mark itself failed for an expected-missing optional capture.
+    # Only genuinely optional omissions may produce a successful warning receipt.
     exit 0
 fi

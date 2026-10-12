@@ -2,3 +2,4 @@
 *.stamp
 __pycache__/
 .DS_Store
+recovery/.tools/

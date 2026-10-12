@@ -8,7 +8,13 @@ This component handles the **big, irreplaceable creative work** and **offsite** 
 | Databases (`/data/databases`) | local `/var/backups`, daily | **`sys/dbops`** |
 | Creative work (`/srv/farm/production`, 138 GB) → Dropbox | offsite | **this repo** (`rclone/`) |
 | Config-as-code snapshot (box identity) | local `/var/backups/config-snapshot`, daily | **`config/`** (`config/snapshot.sh`) |
-| Full-system disaster recovery (bootstrap order) | documented | `config/README.md` + "Disaster recovery" below |
+| External-drive disaster recovery | prepared; real-drive acceptance pending | [`recovery/README.md`](recovery/README.md), [`recovery/RESTORE.md`](recovery/RESTORE.md) |
+
+The recovery toolkit refreshes the server map, stages consistent state, creates
+encrypted incremental snapshots, and restores to a separate tree on a fresh host.
+Its portable scratch tests do not establish whole-server recovery acceptance.
+See the [preparation record](/srv/farm/docs/guides/disaster-recovery/README.md)
+for current status, capacity planning and the remaining operator checks.
 
 ---
 

@@ -1,0 +1,179 @@
+{
+  "schema": "farm.recovery-policy/1",
+  "mode": "server",
+  "host_id": "farm-server",
+  "source_roots": [
+    "/",
+    "/srv/farm",
+    "/boot",
+    "/boot/efi"
+  ],
+  "required_mounts": {
+    "/": "d033ec84-2540-4453-8322-d18642b38f78",
+    "/srv/farm": "dd31db76-5ed7-47f1-bb3c-98338638d6ab",
+    "/boot": "3654b64f-e9f7-497f-96f9-f4c8a11ef288",
+    "/boot/efi": "0BBA-EA55"
+  },
+  "state_dir": "/var/lib/farm-recovery",
+  "minimum_free_bytes": 200000000000,
+  "exclude_paths": [
+    "/dev",
+    "/proc",
+    "/sys",
+    "/run",
+    "/swap.img"
+  ],
+  "manifest_roots": [
+    "/srv/farm",
+    "/home",
+    "/etc",
+    "/root",
+    "/opt",
+    "/usr/local",
+    "/usr/share/ollama",
+    "/data",
+    "/var/lib",
+    "/var/snap",
+    "/var/backups",
+    "/tmp"
+  ],
+  "scan_exclusions": [
+    "/srv/farm/.uv/cache",
+    "/srv/farm/.uv/python",
+    "/srv/farm/code/ACE-Step-1.5/.venv",
+    "/srv/farm/code/ACE-Step/.venv",
+    "/srv/farm/code/InstantMesh/.venv",
+    "/srv/farm/code/audiocraft/.venv",
+    "/srv/farm/code/bark/.venv",
+    "/srv/farm/code/comfyui/.venv",
+    "/srv/farm/code/depth-anything-v2/.venv",
+    "/srv/farm/code/dp/node_modules",
+    "/srv/farm/code/flood-map/.venv",
+    "/srv/farm/code/flooder/electron/node_modules",
+    "/srv/farm/code/flooder/node_modules",
+    "/srv/farm/code/graphiti/.venv",
+    "/srv/farm/code/graphiti/mcp_server/.venv",
+    "/srv/farm/code/live-portrait/.venv",
+    "/srv/farm/code/ml-depth-pro/.venv",
+    "/srv/farm/code/morph/electron/node_modules",
+    "/srv/farm/code/morph/node_modules",
+    "/srv/farm/code/noise-agent/.venv",
+    "/srv/farm/code/noise-agent/frontend/node_modules",
+    "/srv/farm/code/rave/.venv",
+    "/srv/farm/code/riffusion/.venv",
+    "/srv/farm/code/rvc/.venv",
+    "/srv/farm/code/stable-diffusion/.venv",
+    "/srv/farm/code/store/node_modules",
+    "/srv/farm/code/test/back/node_modules",
+    "/srv/farm/code/test/front/node_modules",
+    "/srv/farm/code/tiktok-scraper/.venv",
+    "/srv/farm/code/voxcpm/.venv",
+    "/srv/farm/miniconda3/envs",
+    "/srv/farm/miniconda3/lib",
+    "/srv/farm/miniconda3/pkgs",
+    "/srv/farm/sys/api/.venv",
+    "/srv/farm/sys/api/node_modules",
+    "/srv/farm/sys/api/tools/dev/.venv",
+    "/srv/farm/sys/cli/.venv",
+    "/srv/farm/sys/distribution/.venv",
+    "/srv/farm/sys/floodgate/.venv",
+    "/srv/farm/sys/floodgate/electron/node_modules",
+    "/srv/farm/sys/floodgate/node_modules",
+    "/srv/farm/sys/floodgate/ui/node_modules",
+    "/srv/farm/sys/hardware/.venv",
+    "/srv/farm/sys/manager/desktop/node_modules",
+    "/srv/farm/sys/manager/node_modules",
+    "/srv/farm/sys/mcp/node_modules",
+    "/srv/farm/sys/plugins/discord/node_modules",
+    "/srv/farm/sys/sockets/.venv",
+    "/srv/farm/training/color/.venv",
+    "/srv/farm/training/sketchers/.venv",
+    "/srv/farm/training/voice-of-the-noise/.venv",
+    "/var/lib/farm-recovery"
+  ],
+  "scan_max_depth": 8,
+  "scan_max_entries": 2000000,
+  "command_timeout_seconds": 30,
+  "collect_host_metadata": true,
+  "model_reference_paths": [
+    "/usr/share/ollama/.ollama/models/manifests",
+    "/home/gradywoodruff/models/clef-flash/.cache/huggingface/download",
+    "/home/gradywoodruff/models/ace-step-1.5/.cache/huggingface/download",
+    "/srv/farm/code/llama3/download.sh"
+  ],
+  "sqlite_roots": [
+    "/data/databases",
+    "/var/lib/farm-mcp",
+    "/opt/flamenco"
+  ],
+  "sqlite_paths": [
+    "/home/gradywoodruff/jobs.db"
+  ],
+  "postgres": {
+    "enabled": false,
+    "version": "14",
+    "user": "postgres",
+    "data_path": "/var/lib/postgresql/14/main",
+    "port": 5432
+  },
+  "redis": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 6379,
+    "data_path": "/var/lib/redis/dump.rdb"
+  },
+  "offline_stores": [
+    {
+      "id": "postgres",
+      "path": "/var/lib/postgresql/14/main",
+      "units": [
+        "postgresql@14-main.service"
+      ]
+    },
+    {
+      "id": "farm-dp",
+      "path": "/var/lib/farm-dp",
+      "units": [
+        "farm-dp.service"
+      ]
+    },
+    {
+      "id": "neo4j",
+      "path": "/srv/farm/code/graphiti/neo4j-community-5.26.0/data",
+      "units": [
+        "neo4j.service"
+      ]
+    },
+    {
+      "id": "meilisearch",
+      "path": "/opt/meilisearch/data.ms",
+      "units": [
+        "meilisearch.service"
+      ]
+    },
+    {
+      "id": "docker",
+      "path": "/var/snap/docker/common/var-lib-docker",
+      "units": [
+        "snap.docker.dockerd.service"
+      ]
+    },
+    {
+      "id": "lxd",
+      "path": "/var/snap/lxd/common/lxd",
+      "units": [
+        "snap.lxd.daemon.unix.socket",
+        "snap.lxd.user-daemon.unix.socket",
+        "snap.lxd.user-daemon.service",
+        "snap.lxd.daemon.service"
+      ]
+    }
+  ],
+  "notes": [
+    "Conservative first-backup profile; no unverified model/runtime/cache payload exclusions.",
+    "scan_exclusions limit metadata discovery only; they do not exclude backup payloads.",
+    "All host filesystem mounts must be reviewed against source_roots before backup.",
+    "Application-wide transactions and identity/session stores outside listed consistent captures require acceptance review; a restic snapshot is not a global filesystem snapshot.",
+    "Use the no-service-change prepare command before a drive is available."
+  ]
+}
