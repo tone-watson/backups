@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.2.0 - 2026-10-12
+### CHANGED:
+- Throttle and serialize Dropbox uploads with separate transfer timeouts
+
+
 ## v1.1.17 - 2026-10-03
 ### CHANGED:
 - Preserve RAVE offline runtime artifacts in config backups
