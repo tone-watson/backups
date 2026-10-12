@@ -26,6 +26,110 @@ class ApplyError(RuntimeError):
     pass
 
 
+RUNTIME_RECIPES = {
+    "docker-snap-v1": {
+        "source": "/var/snap/docker/common/var-lib-docker",
+        "entries": [{"path": "volumes/backingFsBlockDev", "kind": "block_device",
+                     "action": "daemon-recreates"}],
+    },
+    "lxd-snap-v1": {
+        "source": "/var/snap/lxd/common/lxd",
+        "entries": [
+            {"path": "shmounts", "kind": "symlink", "action": "recreate-symlink",
+             "target": "/var/snap/lxd/common/shmounts/instances"},
+            {"path": "unix.socket", "kind": "socket", "action": "systemd-recreates"},
+        ],
+    },
+}
+
+
+def _runtime_recipe(source, recipe_id):
+    if not isinstance(recipe_id, str) or recipe_id not in RUNTIME_RECIPES:
+        raise ApplyError("Runtime recipe is unsupported")
+    recipe = RUNTIME_RECIPES[recipe_id]
+    if str(_original(str(source))) != recipe["source"]:
+        raise ApplyError("Runtime recipe does not match its exact source")
+    return recipe
+
+
+def _runtime_receipt(source, receipt):
+    if not isinstance(receipt, dict) or set(receipt) != {"recipe", "entries"}:
+        raise ApplyError("Runtime receipt is invalid")
+    recipe = _runtime_recipe(source, receipt["recipe"])
+    entries = receipt["entries"]
+    if not isinstance(entries, list) or len(entries) != len(recipe["entries"]):
+        raise ApplyError("Runtime receipt must contain exactly its recipe entries")
+    for entry, expected in zip(entries, recipe["entries"]):
+        if (not isinstance(entry, dict) or type(entry.get("present")) is not bool
+                or any(entry.get(key) != value for key, value in expected.items())):
+            raise ApplyError("Runtime entry does not match its recipe")
+        metadata = {"mode", "uid", "gid", "dev", "inode", "nlink"} if entry["present"] else set()
+        if entry["present"] and expected["kind"] == "block_device":
+            metadata.add("rdev")
+        if set(entry) != set(expected) | {"present"} | metadata:
+            raise ApplyError("Runtime entry metadata is invalid")
+        if entry["present"]:
+            for key in metadata:
+                maximum = {"mode": 0o7777, "uid": 2**32 - 2, "gid": 2**32 - 2}.get(key, 2**64 - 1)
+                minimum = 1 if key in {"inode", "nlink"} else 0
+                if type(entry[key]) is not int or not minimum <= entry[key] <= maximum:
+                    raise ApplyError("Runtime entry metadata is invalid")
+            if expected["kind"] == "block_device" and entry["rdev"] != entry["dev"]:
+                raise ApplyError("Runtime block device does not identify its source filesystem")
+    return entries
+
+
+def inspect_runtime_entries(source: Path, recipe_id: str) -> dict:
+    """Observe only exact known runtime entries; payload lookalikes fail closed."""
+    recipe = _runtime_recipe(source, recipe_id)
+    source = _plain(source)
+    if not source.is_dir():
+        raise ApplyError("Runtime source must be an existing directory")
+    source_device = source.stat().st_dev
+    entries = []
+    for expected in recipe["entries"]:
+        entry = dict(expected, present=False)
+        path = source / expected["path"]
+        missing = False
+        for parent in reversed(path.relative_to(source).parents):
+            candidate = source / parent
+            try:
+                info = candidate.lstat()
+            except FileNotFoundError:
+                missing = True
+                break
+            if not stat.S_ISDIR(info.st_mode):
+                raise ApplyError("Runtime entry has a file or symlink ancestor")
+        if not missing:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                missing = True
+        if not missing:
+            valid_type = {"block_device": stat.S_ISBLK, "socket": stat.S_ISSOCK,
+                          "symlink": stat.S_ISLNK}[expected["kind"]]
+            if not valid_type(info.st_mode):
+                raise ApplyError("Runtime entry has an unexpected type; refusing to omit payload")
+            if expected["kind"] == "symlink" and os.readlink(path) != expected["target"]:
+                raise ApplyError("Runtime symlink has an unexpected target")
+            if expected["kind"] == "block_device" and (info.st_rdev != source_device or info.st_dev != source_device):
+                raise ApplyError("Runtime block device does not identify its source filesystem")
+            entry.update(present=True, mode=stat.S_IMODE(info.st_mode), uid=info.st_uid, gid=info.st_gid,
+                         dev=info.st_dev, inode=info.st_ino, nlink=info.st_nlink)
+            if expected["kind"] == "block_device":
+                entry["rdev"] = info.st_rdev
+        entries.append(entry)
+    receipt = {"recipe": recipe_id, "entries": entries}
+    _runtime_receipt(source, receipt)
+    return receipt
+
+
+def runtime_exclude_paths(source, receipt):
+    """Return only recipe-bound, archive-relative paths, including absent entries."""
+    return [str(PurePosixPath(source.name) / entry["path"])
+            for entry in _runtime_receipt(source, receipt)]
+
+
 def _plain(path):
     path = Path(path)
     if not path.is_absolute() or ".." in path.parts or path.resolve() != path:
@@ -143,14 +247,17 @@ def _resolve_tar_link(member, members, root):
             pending = list(PurePosixPath(linked.linkname).parts) + pending
 
 
-def validate_tar(artifact, source):
+def validate_tar(artifact, source, runtime_entries=None):
     """Reject tar layouts the alternate-root applicator cannot restore safely."""
+    omitted = [PurePosixPath(path) for path in runtime_exclude_paths(source, runtime_entries)] if runtime_entries is not None else []
     members = {}
     try:
         # Capture writes uncompressed GNU/PAX tar archives; no auto-detection.
         with tarfile.open(artifact, "r:") as archive:
             for member in archive:
                 path = _member_path(member.name)
+                if any(path == other or path.is_relative_to(other) for other in omitted):
+                    raise ApplyError("Tar contains a declared runtime omission")
                 if path.parts[0] != source.name or path in members:
                     raise ApplyError("Tar has duplicate members or members outside its declared source")
                 if not (member.isfile() or member.isdir() or member.issym() or member.islnk()):
@@ -164,6 +271,9 @@ def validate_tar(artifact, source):
     root = PurePosixPath(source.name)
     if root not in members or not members[root].isdir():
         raise ApplyError("Tar must contain its declared source directory")
+    for path in omitted:
+        if any(parent in members and not members[parent].isdir() for parent in path.parents):
+            raise ApplyError("Tar runtime entry has a file or link ancestor")
     for path, member in members.items():
         for parent in path.parents:
             if parent in members and not members[parent].isdir():
@@ -200,6 +310,8 @@ def _preflight(target, capture_dir):
     for entry in manifest["captures"]:
         if not isinstance(entry, dict) or entry.get("kind") not in {"sqlite", "redis-rdb", "tar", "pg_dumpall"}:
             raise ApplyError("Capture kind is unsupported")
+        if "runtime_entries" in entry and (entry["kind"] != "tar" or entry["runtime_entries"] is None):
+            raise ApplyError("Runtime receipt is valid only for an explicit tar recipe")
         name = entry.get("artifact")
         if (not isinstance(name, str) or "\0" in name or name in {"", ".", "..", "manifest.json"}
                 or Path(name).name != name):
@@ -226,7 +338,7 @@ def _preflight(target, capture_dir):
             if entry["kind"] == "tar":
                 if entry.get("archive_parent") != str(source.parent):
                     raise ApplyError("Tar archive parent does not match its declared source")
-                validate_tar(artifact, source)
+                validate_tar(artifact, source, runtime_entries=entry.get("runtime_entries"))
                 if not Path("/usr/bin/tar").is_file():
                     raise ApplyError("GNU tar is required to apply offline captures")
             else:
@@ -279,7 +391,7 @@ def apply_captures(target: Path, capture_dir: Path) -> dict:
     """
     target, jobs = _preflight(target, capture_dir)
     result = {"schema": "farm.recovery-apply/1", "status": "applied", "target": str(target),
-              "applied": [], "manual_imports": []}
+              "applied": [], "manual_imports": [], "runtime_recovery": []}
     for job in jobs:
         entry = job["entry"]
         if entry["kind"] == "pg_dumpall":
@@ -305,6 +417,29 @@ def apply_captures(target: Path, capture_dir: Path) -> dict:
             raise ApplyError("Capture application failed; retry from a fresh alternate-root extraction") from exc
         result["applied"].append({"kind": entry["kind"], "source": entry["source"],
                                   "target": str(job["destination"])})
+    # All payload writes finish before an approved absolute runtime link exists.
+    for job in jobs:
+        receipt = job["entry"].get("runtime_entries")
+        if receipt is None:
+            continue
+        for runtime in _runtime_receipt(job["source"], receipt):
+            action = {"source": str(job["source"]), "path": runtime["path"],
+                      "kind": runtime["kind"], "action": runtime["action"],
+                      "present_at_capture": runtime["present"], "service_activation": "manual"}
+            if runtime["kind"] == "symlink" and runtime["present"]:
+                destination = job["destination"] / runtime["path"]
+                _plain(destination.parent)
+                if not destination.parent.is_dir() or os.path.lexists(destination):
+                    raise ApplyError("Runtime symlink parent is unsafe or destination already exists")
+                try:
+                    os.symlink(runtime["target"], destination)
+                    os.chown(destination, runtime["uid"], runtime["gid"], follow_symlinks=False)
+                except OSError as exc:
+                    raise ApplyError("Runtime symlink application failed; retry from a fresh extraction") from exc
+                action["status"] = "recreated"
+            else:
+                action["status"] = "absent-at-capture" if runtime["kind"] == "symlink" else "activation-required"
+            result["runtime_recovery"].append(action)
     if result["manual_imports"]:
         result["status"] = "applied-imports-pending"
     return result

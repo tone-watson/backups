@@ -2,8 +2,13 @@
 
 Policy keys: sqlite_roots, sqlite_paths; postgres/redis dictionaries with enabled,
 version/user/data_path (PostgreSQL) or host/port/data_path (Redis); offline_stores
-entries with id, path, and units. timeout_seconds defaults to 900. The caller must
-reject status=incomplete. Native stderr is deliberately absent from receipts.
+entries with id, path, units, and an optional exact runtime_recipe.
+timeout_seconds defaults to 900 for captures
+and state queries. Service stop/start waits have no independent client timeout:
+systemd owns their unit deadlines, execution phases and dependencies. An infinite
+unit deadline can therefore wait until operator intervention. Missing timing
+properties (including simple fixtures) also leave systemd in control. The caller
+must reject status=incomplete. Native stderr is deliberately absent from receipts.
 PostgreSQL logical dumps do not replace/exclude their raw cluster directory:
 local cluster configuration is not reproduced by pg_dumpall. Prefer the guarded
 offline tar for a complete cluster directory backup. Captures are individually
@@ -33,6 +38,7 @@ PROTECTED_UNITS = {
     "wpa_supplicant.service", "systemd-logind.service",
 }
 PROTECTED_BASES = {unit.rsplit('.', 1)[0] for unit in PROTECTED_UNITS}
+UNIT_TIMEOUT_PROPERTIES = ("TimeoutStartUSec", "TimeoutStopUSec", "TimeoutUSec")
 
 
 class CaptureError(RuntimeError):
@@ -125,7 +131,8 @@ def _unit_state(unit, timeout):
     if _protected(unit):
         raise CaptureError("automatic capture cannot control SSH/network/Tailscale units")
     output = _run(["/usr/bin/systemctl", "show", unit, "--no-pager",
-                   "--property=Id,Names,LoadState,ActiveState,SubState,MainPID,ControlPID"], timeout=timeout)
+                   "--property=Id,Names,LoadState,ActiveState,SubState,MainPID,ControlPID,"
+                   + ",".join(UNIT_TIMEOUT_PROPERTIES)], timeout=timeout)
     fields = dict(line.split("=", 1) for line in output.decode("utf-8", "replace").splitlines() if "=" in line)
     names = set(fields.get("Names", "").split()) | {fields.get("Id", unit)}
     if any(_protected(name) for name in names):
@@ -151,6 +158,34 @@ def _inactive(unit, timeout):
     state = _unit_state(unit, timeout)
     if not _is_inactive(unit, state):
         raise CaptureError("offline store unit is not inactive/dead with zero PIDs")
+
+
+def _control_unit(unit, action, initial_state, stage, receipt):
+    """Wait for systemd's job result without imposing the native-capture timeout.
+
+    Unit deadlines can cover multiple command phases and may be extended by a
+    notify service or dependency jobs. Killing only the systemctl client early
+    leaves that manager-owned job running, so no finite client deadline is safe.
+    Raw limits are evidence, not a guessed upper bound for the complete job.
+    """
+    if action not in {"stop", "start"}:
+        raise CaptureError("unsupported service control action")
+    wait = {"unit": unit, "action": action, "status": "waiting",
+            "deadline_owner": "systemd", "client_timeout_seconds": None,
+            "initial_manager_timeouts": {key: initial_state[key] for key in UNIT_TIMEOUT_PROPERTIES
+                                         if key in initial_state}}
+    receipt["service_waits"].append(wait)
+    _write_receipt(stage, receipt)
+    started = time.monotonic()
+    try:
+        _run(["/usr/bin/systemctl", action, unit], timeout=None)
+        wait["status"] = "job_returned_success"
+    except BaseException as exc:
+        wait["status"] = "failed" if isinstance(exc, Exception) else "interrupted"
+        raise
+    finally:
+        wait["elapsed_seconds"] = round(time.monotonic() - started, 3)
+        _write_receipt(stage, receipt)
 
 
 def _sqlite_paths(policy):
@@ -258,31 +293,52 @@ def _capture_redis(config, stage, timeout):
         temporary.unlink(missing_ok=True)
 
 
+def _archive_helper():
+    # Load the colocated helper directly, independent of CLI/test sys.path.
+    spec = importlib.util.spec_from_file_location(
+        "farm_capture_archive_validation", Path(__file__).with_name("apply_captures.py"))
+    if spec is None or spec.loader is None:
+        raise CaptureError("shared restore archive validator is unavailable")
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    return helper
+
+
+def _runtime_entries(store, source, helper):
+    if "runtime_recipe" not in store:
+        return None
+    try:
+        return helper.inspect_runtime_entries(source, store["runtime_recipe"])
+    except helper.ApplyError:
+        raise CaptureError("offline runtime entries do not match the reviewed recovery recipe") from None
+
+
 def _capture_offline(store, stage, timeout):
     identity = store["id"]
     source, metadata = _source(store["path"], stage, directory=True)
     for unit in store["units"]:
         _inactive(unit, timeout)
+    helper = _archive_helper()
+    runtime = _runtime_entries(store, source, helper)
+    omit = helper.runtime_exclude_paths(source, runtime) if runtime is not None else []
     temporary = stage / ("." + identity + ".tar.partial")
     try:
         _run(["/usr/bin/tar", "--acls", "--xattrs", "--numeric-owner", "--sparse",
+              "--anchored", "--no-wildcards", *["--exclude=" + path for path in omit],
               "-cf", str(temporary), "-C", str(source.parent), "--", source.name], timeout=timeout)
         for unit in store["units"]:
             _inactive(unit, timeout)
-        # Load the colocated helper directly, independent of CLI/test sys.path.
+        if _runtime_entries(store, source, helper) != runtime:
+            raise CaptureError("offline runtime entries changed during capture")
         # A successful tar command alone does not establish that our guarded
         # alternate-root restoration can safely apply the resulting archive.
-        spec = importlib.util.spec_from_file_location(
-            "farm_capture_archive_validation", Path(__file__).with_name("apply_captures.py"))
-        if spec is None or spec.loader is None:
-            raise CaptureError("shared restore archive validator is unavailable")
-        helper = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(helper)
         try:
-            helper.validate_tar(temporary, source)
+            helper.validate_tar(temporary, source, runtime_entries=runtime)
         except helper.ApplyError:
             raise CaptureError("offline archive is unsupported by guarded restore; a reviewed manual recovery recipe is required") from None
         metadata.update(units=list(store["units"]), archive_parent=str(source.parent))
+        if runtime is not None:
+            metadata["runtime_entries"] = runtime
         result = _promote(stage, temporary, identity + ".tar", kind="tar", source=source,
                           restore="Keep recorded services stopped; extract with ACLs/xattrs/numeric ownership into the original parent and an empty target, then validate before starting services.",
                           metadata=metadata)
@@ -295,8 +351,9 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
     """Capture configured stores into an empty private stage; return a truthful receipt.
 
     With quiesce=True, only explicitly listed, initially active offline-store
-    services are stopped and restored in reverse order in finally. Before/after
-    state guards do not replace an operator-exclusive maintenance window. Forced
+    services are stopped and restored in finally, sockets before services and
+    reverse stop order within each category. Before/after state guards do not
+    replace an operator-exclusive maintenance window. Forced
     process termination or host loss still requires operator service recovery.
     """
     stage = _plain_path(stage)
@@ -306,7 +363,7 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
     stage.chmod(0o700)
     receipt = {"schema": "farm.recovery-captures/1", "status": "incomplete",
                "captures": [], "exclusions": [], "errors": [], "service_restoration": [],
-               "initial_unit_states": {}, "service_actions": []}
+               "initial_unit_states": {}, "service_actions": [], "service_waits": []}
     _write_receipt(stage, receipt)
     stopped = []
     interrupted = None
@@ -324,7 +381,9 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
             identities.add(identity)
             if not store.get("units") or not isinstance(store["units"], list):
                 raise CaptureError("offline store requires explicit writer units")
-            _source(store["path"], stage, directory=True)
+            source, _ = _source(store["path"], stage, directory=True)
+            if "runtime_recipe" in store:
+                _runtime_entries(store, source, _archive_helper())
             for unit in store["units"]:
                 if unit not in units:
                     units.append(unit)
@@ -344,7 +403,7 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
                 action = {"unit": unit, "action": "stop", "status": "intended"}
                 receipt["service_actions"].append(action)
                 _write_receipt(stage, receipt)
-                _run(["/usr/bin/systemctl", "stop", unit], timeout=timeout)
+                _control_unit(unit, "stop", initial[unit], stage, receipt)
                 _inactive(unit, timeout)
                 action["status"] = "confirmed"
                 _write_receipt(stage, receipt)
@@ -368,12 +427,16 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
         receipt["errors"].append({"capture": "interruption", "error": "capture interrupted"})
         interrupted = exc
     finally:
-        for unit in reversed(stopped):
+        # Socket-activated daemons need their listening descriptors available
+        # before startup, even when their unit does not declare that dependency.
+        restore_units = [unit for suffix in (".socket", ".service")
+                         for unit in reversed(stopped) if unit.endswith(suffix)]
+        for unit in restore_units:
             try:
                 action = {"unit": unit, "action": "start", "status": "intended"}
                 receipt["service_actions"].append(action)
                 _write_receipt(stage, receipt)
-                _run(["/usr/bin/systemctl", "start", unit], timeout=timeout)
+                _control_unit(unit, "start", initial[unit], stage, receipt)
                 state = _unit_state(unit, timeout)
                 if not _is_active(unit, state):
                     raise CaptureError("unit did not return to its original active substate")

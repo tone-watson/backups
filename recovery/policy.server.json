@@ -154,6 +154,7 @@
     {
       "id": "docker",
       "path": "/var/snap/docker/common/var-lib-docker",
+      "runtime_recipe": "docker-snap-v1",
       "units": [
         "snap.docker.dockerd.service"
       ]
@@ -161,6 +162,7 @@
     {
       "id": "lxd",
       "path": "/var/snap/lxd/common/lxd",
+      "runtime_recipe": "lxd-snap-v1",
       "units": [
         "snap.lxd.daemon.unix.socket",
         "snap.lxd.user-daemon.unix.socket",
@@ -174,6 +176,7 @@
     "scan_exclusions limit metadata discovery only; they do not exclude backup payloads.",
     "All host filesystem mounts must be reviewed against source_roots before backup.",
     "Application-wide transactions and identity/session stores outside listed consistent captures require acceptance review; a restic snapshot is not a global filesystem snapshot.",
+    "Docker/LXD runtime recipes omit only verified exact device/socket/link entries and record their reconstruction; unexpected types or targets fail capture.",
     "Use the no-service-change prepare command before a drive is available."
   ]
 }

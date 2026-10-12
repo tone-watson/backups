@@ -97,6 +97,18 @@ Review `policy.server.json` before the first run. Its native captures are:
 - Offline archives for Farm DP, Neo4j, Meilisearch, Docker and LXD, including
   ACLs/xattrs.
 
+The Docker/LXD archives use two explicit recipes tied to their exact source
+paths. They record and omit only Docker's `volumes/backingFsBlockDev`, LXD's
+`unix.socket`, and LXD's `shmounts` link to
+`/var/snap/lxd/common/shmounts/instances`. Their types and link/device identities
+are checked before any service stop and again around archive creation; an
+unexpected regular file, directory, link target or changed entry fails capture.
+Other data and the general archive-link/special-file restrictions are unchanged.
+The capture receipt records each runtime entry, including absence. During
+restore the exact recorded LXD link is recreated after payload extraction;
+Docker and systemd create the device node and listening socket when explicitly
+activated on the recovered machine. See [runtime restoration](RESTORE.md).
+
 Offline stores must have their listed writer units inactive. An explicit
 `--quiesce` allows the tool to stop those listed services/sockets for capture and
 restore their original active state afterward. SSH, networking, Cloudflare and
@@ -116,7 +128,13 @@ sudo /srv/farm/sys/backups/recovery/farm-recovery check --drive /mnt/farm-backup
 ```
 
 Omit `--quiesce` when writers were stopped separately; the tool still checks their
-state. No automatic system-wide freeze occurs. Each SQLite/database capture is
+state. Stopped sockets are restored before stopped services, with reverse stop
+order within each group. Service stop/start waits use systemd's own deadlines
+and dependency ordering, not the 900-second native capture timeout. Receipts
+record those waits and the original unit timeout settings. Infinite systemd
+deadlines may require operator intervention; a timed-out or interrupted client
+does not cancel a manager-owned job. No automatic system-wide freeze occurs.
+Each SQLite/database capture is
 consistent within its own scope; live content and separate databases do not form
 one atomic application transaction. Session/identity stores copied as ordinary
 files need service-specific acceptance during the first maintenance run. New

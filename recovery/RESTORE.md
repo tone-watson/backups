@@ -128,6 +128,29 @@ remain stopped. Test database health before reconnecting callers. Docker/LXD
 archives require matching storage-driver/runtime support and their recorded
 services/sockets to remain stopped during restoration. Database major-version
 migrations and changed container storage backends require separate vendor recipes.
+
+For captures with the reviewed `docker-snap-v1` or `lxd-snap-v1` runtime recipes,
+`apply-captures` validates the receipt and requires those omitted entries to be
+absent from the archive. It reconstructs the exact recorded LXD `shmounts`
+symlink only after every payload has been applied, without following that link.
+Keep the alternate root offline and do not follow its absolute symlinks into the
+running host. Docker's device node and LXD's listening socket remain absent;
+the application receipt lists their pending runtime activation explicitly.
+
+- Docker recreates `volumes/backingFsBlockDev` using the recovered filesystem's
+  device identity when its local-volume quota controller initializes. Never
+  recreate the old host's recorded major/minor numbers manually. This was checked
+  against the installed Docker 29.8.0 build and matching
+  [Moby quota implementation](https://github.com/moby/moby/blob/docker-v29.8.0/daemon/internal/quota/projectquota.go#L406)
+  and [local-volume startup](https://github.com/moby/moby/blob/docker-v29.8.0/daemon/volume/local/local.go#L74).
+- LXD's installed `snap.lxd.daemon.unix.socket` unit creates `unix.socket` when
+  started. Start its recorded socket units before its daemon service. The snap
+  wrapper recreates `shmounts` only during shared-mount setup, so do not rely on
+  an arbitrary restart to replace a missing link; `apply-captures` handles the
+  reviewed link directly.
+
+These recipes do not activate Docker or LXD, import databases, validate container
+health, or permit arbitrary absolute links/device nodes in captured archives.
 Farm DP's captured state must likewise be installed while `farm-dp.service` is
 stopped and checked before that application is started.
 
