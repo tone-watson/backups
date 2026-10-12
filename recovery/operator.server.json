@@ -1,0 +1,12 @@
+{
+  "schema": "farm.recovery-operator-profile/1",
+  "mountpoint": "/mnt/farm-backup",
+  "filesystem_uuid": "069c71d8-0e56-444c-afd0-782d0802ca6b",
+  "repository_id": "152bbdd5eb1f4375b4b16ad9e1aaa906ce29abd1c3f2d4a5d52d7795e01cf2a3",
+  "device_by_id": "/dev/disk/by-id/scsi-SLaCie_Mobile_Drive_00000000NL6F7VD2",
+  "partition_by_id": "/dev/disk/by-id/scsi-SLaCie_Mobile_Drive_00000000NL6F7VD2-part1",
+  "serial": "00000000NL6F7VD2",
+  "password_file": "/root/farm-recovery.pass",
+  "policy": "/srv/farm/sys/backups/recovery/policy.server.json",
+  "state_dir": "/var/lib/farm-recovery"
+}

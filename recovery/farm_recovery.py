@@ -25,6 +25,7 @@ sys.path.insert(0, str(HERE))
 TAG = "farm-recovery"
 COMPLETE = "farm-recovery-complete"
 MARKER = ".farm-recovery-drive.json"
+LIFECYCLE_LOCK = Path("/run/lock/farm-recovery.lifecycle.lock")
 
 
 class RecoveryError(RuntimeError):
@@ -244,6 +245,26 @@ def locked(path):
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise RecoveryError("Another recovery operation holds the lock") from exc
+        yield
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def lifecycle_lock(*, wait=False):
+    """Serialize host drive operations outside the detachable filesystem."""
+    parent = real_directory(LIFECYCLE_LOCK.parent)
+    if parent.stat().st_uid != 0:
+        raise RecoveryError("Recovery lifecycle lock directory must be root-owned")
+    fd = os.open(LIFECYCLE_LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o077 or st.st_nlink != 1:
+            raise RecoveryError("Unsafe recovery lifecycle lock")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except BlockingIOError as exc:
+            raise RecoveryError("Another recovery or drive operation is running") from exc
         yield
     finally:
         os.close(fd)
@@ -605,27 +626,34 @@ def main(argv=None):
                 result["finished_at"] = now()
                 write_json(target / "FARM-APPLY-RECEIPT.json", result)
         else:
-            if not args.restic:
-                raise RecoveryError("restic is unavailable; use fetch-restic.py or an installed binary")
-            if args.command == "restore":
-                result = restore(args)
-            else:
-                policy = load_policy(args.policy)
-                if args.command == "init":
-                    result = initialize(args, policy)
-                elif args.command == "backup":
-                    result = backup(args, policy)
+            # Fixture operations remain isolated; every privileged server
+            # repository operation shares the operator mount/eject gate.
+            server = load_policy(args.policy)["mode"] == "server"
+            gate = lifecycle_lock() if server and os.geteuid() == 0 else contextlib.nullcontext()
+            with gate:
+                if server and os.geteuid() == 0 and os.path.lexists("/run/farm-recovery-operator/launch.json"):
+                    raise RecoveryError("An operator backup launch is pending; inspect its status before direct recovery operations")
+                if not args.restic:
+                    raise RecoveryError("restic is unavailable; use fetch-restic.py or an installed binary")
+                if args.command == "restore":
+                    result = restore(args)
                 else:
-                    drive, engine = open_repository(args, policy)
-                    with locked(drive / ".farm-recovery.lock"):
-                        if args.command == "snapshots":
-                            result = engine.json(["snapshots", "--tag", COMPLETE])
-                        elif args.command == "check":
-                            engine.run(["check", *(["--read-data"] if args.read_data else [])])
-                            result = {"status": "checked", "read_data": args.read_data}
-                        else:
-                            result = engine.json(["forget", "--dry-run", "--tag", COMPLETE,
-                                                  "--group-by", "host", "--keep-within", "90d", "--keep-last", "3"])
+                    policy = load_policy(args.policy)
+                    if args.command == "init":
+                        result = initialize(args, policy)
+                    elif args.command == "backup":
+                        result = backup(args, policy)
+                    else:
+                        drive, engine = open_repository(args, policy)
+                        with locked(drive / ".farm-recovery.lock"):
+                            if args.command == "snapshots":
+                                result = engine.json(["snapshots", "--tag", COMPLETE])
+                            elif args.command == "check":
+                                engine.run(["check", *(["--read-data"] if args.read_data else [])])
+                                result = {"status": "checked", "read_data": args.read_data}
+                            else:
+                                result = engine.json(["forget", "--dry-run", "--tag", COMPLETE,
+                                                      "--group-by", "host", "--keep-within", "90d", "--keep-last", "3"])
         print(json.dumps(result, indent=2))
         return 0
     except (RecoveryError, OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:

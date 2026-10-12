@@ -12,6 +12,27 @@ Metadata scan boundaries are separate from payload exclusions. The
 [classification](/srv/farm/docs/guides/disaster-recovery/2026-10-12-classification.md)
 describes how later verified recipes can reduce this selection.
 
+## Routine backups on this server
+
+The server-only `farm backup` commands use `farm_recovery_operator.py` and the
+registered LaCie identity in `operator.server.json`. Plug in the drive, run
+`farm backup start`, follow `farm backup status` or `farm backup logs`, then run
+`farm backup eject` after completion. Start mounts the registered partition when
+needed and permits the configured service pauses during consistent capture.
+The existing encrypted repository and password file are reused.
+
+The operator and direct server recovery commands share a lifecycle lock outside
+the drive. Existing drive/state locks also protect backups started before this
+operator was introduced. New jobs run independently under transient systemd
+units; sanitized terminal summaries remain on the server after unit collection
+or drive removal. The private capture state and password remain private.
+No schedule, automatic retry, formatting or pruning is introduced.
+
+Release Backups before CLI. No service restart or configuration installation is
+required. See the [CLI operator guide](/srv/farm/sys/cli/docs/backup.md) for
+mount/unmount behavior, privilege prompts and validation limits. The portable
+commands below also remain available for preparation and disaster recovery.
+
 ## Before a drive exists
 
 Run the read-only checks:
