@@ -120,7 +120,10 @@
     "enabled": true,
     "host": "127.0.0.1",
     "port": 6379,
-    "data_path": "/var/lib/redis/dump.rdb"
+    "data_path": "/var/lib/redis/dump.rdb",
+    "persistence_verification": "disabled-config",
+    "config_file": "/etc/redis/redis.conf",
+    "service_unit": "redis-server.service"
   },
   "offline_stores": [
     {

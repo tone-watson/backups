@@ -97,6 +97,19 @@ Review `policy.server.json` before the first run. Its native captures are:
 - Offline archives for Farm DP, Neo4j, Meilisearch, Docker and LXD, including
   ACLs/xattrs.
 
+Redis verification runs before any offline writer is stopped and again around
+the RDB export. The server policy explicitly selects `disabled-config` because
+this host disables Redis's `CONFIG` command. This Redis 6.0.16 recipe reads the protected
+configuration and verifies its unchanged startup settings against the active
+systemd unit, the local Redis process and `INFO` responses. It requires the
+reviewed direct service launch, no includes or drop-ins, a matching persistence
+directory/filename, and AOF disabled. Unsupported or changed startup settings
+fail closed; a Redis upgrade requires recipe revalidation. The recipe never
+enables `CONFIG` or changes Redis settings.
+The capture records a stable verification identity and requires it to match
+after `redis-cli --rdb` and `redis-check-rdb` succeed. Other deployments retain
+the default `config-command` verification unless explicitly configured otherwise.
+
 The Docker/LXD archives use two explicit recipes tied to their exact source
 paths. They record and omit only Docker's `volumes/backingFsBlockDev`, LXD's
 `unix.socket`, and LXD's `shmounts` link to
@@ -118,7 +131,7 @@ states and service actions are journaled in the protected capture stage; after a
 power loss or forced kill, inspect that receipt before manually restarting units.
 An incomplete prior capture blocks the next run. Review its journal, recover the
 recorded service states, then move the entire `current/` directory to a private
-incident directory outside the managed state directory before retrying. The tool
+incident directory outside the managed `current/` staging tree before retrying. The tool
 never discards that journal automatically.
 
 ```sh

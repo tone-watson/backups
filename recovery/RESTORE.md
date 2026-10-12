@@ -121,6 +121,10 @@ For Redis, restore the validated RDB to the captured configured path while
 `redis-server.service` is stopped. Reconcile persistence settings and review queued
 jobs before enabling Farm workers. The implemented recipe rejects AOF-enabled
 capture; do not add an old append-only file on restoration.
+Preserve the captured `rename-command CONFIG ""` hardening setting. The
+`disabled-config` capture recipe does not require enabling that command during
+backup or restore. Its verification identity describes the original host;
+review the new host's service launch and persistence settings before activation.
 
 For Neo4j and Meilisearch, restore their offline archives with compatible binaries
 and the captured configuration while `neo4j.service` and `meilisearch.service`

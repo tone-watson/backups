@@ -17,6 +17,15 @@ import farm_recovery as recovery
 
 
 class GuardTests(unittest.TestCase):
+    def test_rescue_kit_contains_redis_verifier(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "rescue-kit"
+            recovery.kit(destination)
+            verifier = destination / "redis_state.py"
+            self.assertEqual(verifier.read_bytes(), (HERE / "redis_state.py").read_bytes())
+            hashes = json.loads((destination / "SHA256SUMS.json").read_text())
+            self.assertEqual(hashes["redis_state.py"], recovery.digest(verifier))
+
     def test_path_traversal_and_relative_rejected(self):
         for path in ("relative", "/tmp/../etc"):
             with self.assertRaises(recovery.RecoveryError):

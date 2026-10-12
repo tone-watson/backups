@@ -261,30 +261,51 @@ def _capture_postgres(config, stage, timeout):
         temporary.unlink(missing_ok=True)
 
 
+def _verify_redis_persistence(config, source, timeout):
+    """Read-only validation, also run before any offline-store service stops."""
+    host, port = config.get("host", "127.0.0.1"), int(config.get("port", 6379))
+    if not ipaddress.ip_address(host).is_loopback or not 0 < port < 65536:
+        raise CaptureError("Redis capture requires an explicit loopback address and valid port")
+    method = config.get("persistence_verification", "config-command")
+    if method == "disabled-config":
+        spec = importlib.util.spec_from_file_location(
+            "farm_redis_state_verification", Path(__file__).with_name("redis_state.py"))
+        if spec is None or spec.loader is None:
+            raise CaptureError("Redis state verifier is unavailable")
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        try:
+            return helper.verify_disabled_config(config, source, _run, timeout)
+        except helper.RedisVerificationError as exc:
+            raise CaptureError(str(exc)) from None
+    if method != "config-command":
+        raise CaptureError("Unsupported Redis persistence verification method")
+    values = {}
+    for key in ("dir", "dbfilename", "appendonly"):
+        lines = _run(["/usr/bin/redis-cli", "-h", host, "-p", str(port), "--raw", "CONFIG", "GET", key],
+                     timeout=timeout).decode("utf-8", "strict").splitlines()
+        if len(lines) != 2 or lines[0] != key:
+            raise CaptureError(f"Redis CONFIG GET {key} could not be verified")
+        values[key] = lines[1]
+    if values["appendonly"] != "no":
+        raise CaptureError("Redis AOF persistence requires a separately reviewed capture/restore policy")
+    if Path(values["dir"]) / values["dbfilename"] != source:
+        raise CaptureError("Redis live persistence path does not match the configured source")
+    return {"method": method, **values}
+
+
 def _capture_redis(config, stage, timeout):
     source, metadata = _source(config.get("data_path", "/var/lib/redis/dump.rdb"), stage)
     metadata["xattrs"] = _file_xattrs(source)
     host, port = config.get("host", "127.0.0.1"), int(config.get("port", 6379))
-    if not ipaddress.ip_address(host).is_loopback or not 0 < port < 65536:
-        raise CaptureError("Redis capture requires an explicit loopback address and valid port")
-    def verify_persistence():
-        values = {}
-        for key in ("dir", "dbfilename", "appendonly"):
-            lines = _run(["/usr/bin/redis-cli", "-h", host, "-p", str(port), "--raw", "CONFIG", "GET", key],
-                         timeout=timeout).decode("utf-8", "strict").splitlines()
-            if len(lines) != 2 or lines[0] != key:
-                raise CaptureError("Redis persistence configuration could not be verified")
-            values[key] = lines[1]
-        if values["appendonly"] != "no":
-            raise CaptureError("Redis AOF persistence requires a separately reviewed capture/restore policy")
-        if Path(values["dir"]) / values["dbfilename"] != source:
-            raise CaptureError("Redis live persistence path does not match the configured source")
-    verify_persistence()
+    verified = _verify_redis_persistence(config, source, timeout)
     temporary = stage / ".redis.rdb.partial"
     try:
         _run(["/usr/bin/redis-cli", "-h", host, "-p", str(port), "--rdb", str(temporary)], timeout=timeout)
         _run(["/usr/bin/redis-check-rdb", str(temporary)], timeout=timeout)
-        verify_persistence()
+        if _verify_redis_persistence(config, source, timeout) != verified:
+            raise CaptureError("Redis persistence identity changed during capture")
+        metadata["persistence_verification"] = verified
         result = _promote(stage, temporary, "redis.rdb", kind="redis-rdb", source=source,
                           restore="Restore the validated RDB to the configured persistence path while Redis is stopped; reconcile persistence settings and queued work before enabling workers.",
                           metadata=metadata)
@@ -396,6 +417,10 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
                     raise CaptureError("offline store is active; an explicit maintenance window is required")
             elif not _is_inactive(unit, state):
                 raise CaptureError("offline store unit is in an unsupported transitional/failed state")
+        if policy.get("redis", {}).get("enabled"):
+            redis_config = policy["redis"]
+            redis_source, _ = _source(redis_config.get("data_path", "/var/lib/redis/dump.rdb"), stage)
+            _verify_redis_persistence(redis_config, redis_source, timeout)
         for unit, state in initial.items():
             if state.get("ActiveState") == "active":
                 # Even a failed stop may have changed the original running state.

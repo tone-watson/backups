@@ -337,7 +337,7 @@ def kit(destination, restic_binary=None):
             os.fsync(output.fileno())
         temp.chmod(mode or (source.stat().st_mode & 0o777))
         os.replace(temp, target)
-    for name in ["farm-recovery", "farm_recovery.py", "manifest.py", "capture.py", "apply_captures.py",
+    for name in ["farm-recovery", "farm_recovery.py", "manifest.py", "capture.py", "redis_state.py", "apply_captures.py",
                  "policy.server.json", "README.md", "RESTORE.md", "fetch-restic.py"]:
         source = HERE / name
         if source.exists():
