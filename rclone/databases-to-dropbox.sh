@@ -29,11 +29,14 @@ DEST="${DEST_ROOT}/databases"
 ARCHIVE="${DEST_ROOT}/_archive/databases/$(date +%Y-%m-%d)"
 LOG="/srv/farm/logs/farm-dropbox-db-sync.log"
 STAMP="/srv/farm/logs/farm-dropbox-db-sync.stamp"   # success heartbeat, read by dbops health-check.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/dropbox-common.sh"
 
 # Log to file and stdout (systemd journal)
 exec > >(tee -a "$LOG") 2>&1
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox DB sync starting ==="
+acquire_dropbox_lock
 
 if ! command -v rclone >/dev/null 2>&1; then
     echo "ERROR: rclone is not installed. See sys/backups/README.md"
@@ -66,21 +69,17 @@ fi
 REDIS_DUMP="${SRC}/redis-dump.rdb"
 if ! command -v redis-cli >/dev/null 2>&1; then
     echo "WARN: redis-cli not found — skipping Redis snapshot (DB backup continues)"
-elif redis-cli --rdb "$REDIS_DUMP" >/dev/null 2>&1 && [ -s "$REDIS_DUMP" ]; then
+elif timeout --kill-after=10s 5m redis-cli --rdb "$REDIS_DUMP" >/dev/null 2>&1 && [ -s "$REDIS_DUMP" ]; then
     echo "Redis snapshot written: $REDIS_DUMP ($(du -h "$REDIS_DUMP" | cut -f1))"
 else
     echo "WARN: Redis snapshot failed (redis-cli --rdb) — shipping DBs without it"
 
 fi
 
-# --backup-dir: preserve replaced/deleted files. The snapshots are small (~35M),
-# so no exclude list or rename tracking is needed.
-rclone sync "$SRC" "$DEST" \
-    --backup-dir "$ARCHIVE" \
-    --transfers 4 \
-    --checkers 8 \
-    --fast-list \
-    --log-level INFO
+# --backup-dir: preserve replaced/deleted files. Database snapshots can total
+# multiple GiB; four hours allows the capped upload to finish and retry.
+run_dropbox_upload 4h "$SRC" "$DEST" \
+    --backup-dir "$ARCHIVE"
 
 date +%s > "$STAMP" 2>/dev/null || true   # record off-box success time for freshness monitoring
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox DB sync complete ==="

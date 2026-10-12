@@ -27,11 +27,13 @@ LOG="/var/log/farm-dropbox-sync.log"
 STAMP="/srv/farm/logs/farm-dropbox-sync.stamp"   # success heartbeat, read by dbops health-check.sh
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXCLUDE="${SCRIPT_DIR}/exclude.txt"
+source "${SCRIPT_DIR}/dropbox-common.sh"
 
 # Log to file and stdout (systemd journal)
 exec > >(tee -a "$LOG") 2>&1
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox sync starting ==="
+acquire_dropbox_lock
 
 if ! command -v rclone >/dev/null 2>&1; then
     echo "ERROR: rclone is not installed. See sys/backups/README.md"
@@ -43,16 +45,11 @@ if ! rclone listremotes 2>/dev/null | grep -q "^${REMOTE_NAME}:"; then
     exit 1
 fi
 
-# --transfers/--checkers: parallelism. --fast-list: fewer API calls on big trees.
 # --backup-dir: preserve replaced/deleted files. --track-renames: cheap moves.
-rclone sync "$SRC" "$DEST" \
+run_dropbox_upload 6h "$SRC" "$DEST" \
     --exclude-from "$EXCLUDE" \
     --backup-dir "$ARCHIVE" \
-    --track-renames \
-    --transfers 4 \
-    --checkers 8 \
-    --fast-list \
-    --log-level INFO
+    --track-renames
 
 date +%s > "$STAMP" 2>/dev/null || true   # record off-box success time for freshness monitoring
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox sync complete ==="

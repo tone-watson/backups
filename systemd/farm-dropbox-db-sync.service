@@ -14,4 +14,6 @@ Group=gradywoodruff
 ExecStart=/srv/farm/sys/backups/rclone/databases-to-dropbox.sh
 Nice=10
 IOSchedulingClass=idle
-TimeoutStartSec=1h
+# Queue wait is separate from the script's four-hour upload budget. The Redis
+# snapshot is also bounded in the script; a queued run is not skipped.
+TimeoutStartSec=infinity

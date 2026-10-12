@@ -14,5 +14,6 @@ Group=gradywoodruff
 ExecStart=/srv/farm/sys/backups/rclone/production-to-dropbox.sh
 Nice=10
 IOSchedulingClass=idle
-# Don't let a slow upload run forever
-TimeoutStartSec=6h
+# Waiting for the shared upload lock must not consume the six-hour transfer
+# budget. The script bounds rclone itself with GNU timeout after taking the lock.
+TimeoutStartSec=infinity

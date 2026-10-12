@@ -57,6 +57,43 @@ sudo systemctl enable --now farm-dropbox-sync.timer
 
 The first run uploads ~138 GB (hours, depending on upstream bandwidth); subsequent runs only send changes. Log: `/var/log/farm-dropbox-sync.log`. Tune excludes in `rclone/exclude.txt`.
 
+### Wi-Fi upload budget
+
+Production and database Dropbox jobs share one upload slot. Each run waits for
+`/srv/farm/logs/farm-dropbox-upload.lock`, then uploads at **1 MiB/s** (about
+8.4 Mbps), with **one transfer** and two checkers. This protects interactive
+SSH/NFS traffic on the Wi-Fi-only server. The limit is deliberately conservative;
+validate latency and backup completion before raising it in
+`rclone/dropbox-common.sh`. Do not delete the lock file while jobs are running.
+
+The lock covers manual script runs as well as both systemd services. Waiting jobs
+are not silently skipped. Systemd does not create another instance of the same
+service for timer ticks that occur while that service is already running.
+
+The scripts allow six hours of production upload time and four hours for database
+uploads, **after acquiring the lock**. The Redis snapshot has a separate five-minute
+limit. Failed or timed-out uploads do not update the success heartbeat. A 4.3 GiB
+database upload needs about 73 minutes at this cap before checking/retry overhead;
+the old one-hour service timeout is insufficient. Very large production backlogs
+can take several scheduled runs. Monitor successful completion and the off-box
+heartbeat; the cap does not establish that Wi-Fi driver crashes are fixed.
+
+Existing services execute the repository scripts directly, so cap and lock changes
+apply to the next run without a release or service restart. Install the updated
+timeout policy once, before the next run (an active service must finish before
+replacing its timeout assumptions):
+
+```bash
+sudo install -m 0644 /srv/farm/sys/backups/systemd/farm-dropbox-sync.service /etc/systemd/system/farm-dropbox-sync.service
+sudo install -m 0644 /srv/farm/sys/backups/systemd/farm-dropbox-db-sync.service /etc/systemd/system/farm-dropbox-db-sync.service
+sudo systemctl daemon-reload
+systemctl show farm-dropbox-sync.service farm-dropbox-db-sync.service -p Id -p TimeoutStartUSec
+```
+
+Both should report `TimeoutStartUSec=infinity`. The per-upload limits still apply
+inside the scripts. Leave the existing timers enabled; no service or network
+restart is required, and these operator steps do not depend on `farm release`.
+
 **Keep the backup off your Mac (important if your Dropbox is synced there).** rclone uploads to the cloud; the Dropbox *desktop app* would then try to download `farm/` to the Mac. Prevent that with Selective Sync — and do it *before* the first big sync:
 1. Server: `rclone mkdir dropbox:farm`
 2. Mac: when the empty `farm` folder appears, Dropbox app → Preferences → Sync → Selective Sync → uncheck `farm`.
