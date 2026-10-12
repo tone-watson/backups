@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.5.0 - 2026-10-12
+### CHANGED:
+- Verify hardened Redis persistence before recovery captures
+
+
 ## v1.4.0 - 2026-10-12
 ### CHANGED:
 - Handle container runtime entries during server recovery
