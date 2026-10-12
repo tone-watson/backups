@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.4.0 - 2026-10-12
+### CHANGED:
+- Handle container runtime entries during server recovery
+
+
 ## v1.3.0 - 2026-10-12
 ### CHANGED:
 - Prepare portable encrypted server recovery toolkit
