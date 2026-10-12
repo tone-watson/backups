@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.3.0 - 2026-10-12
+### CHANGED:
+- Prepare portable encrypted server recovery toolkit
+
+
 ## v1.2.0 - 2026-10-12
 ### CHANGED:
 - Throttle and serialize Dropbox uploads with separate transfer timeouts
