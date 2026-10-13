@@ -32,6 +32,21 @@ class RecoveryError(RuntimeError):
     pass
 
 
+class ResticError(RecoveryError):
+    """A native failure with private evidence, never native text in its message."""
+
+    def __init__(self, operation, exit_code, *, summary=None, diagnostics_path=None, error_count=0):
+        self.exit_code = exit_code
+        self.summary = summary
+        self.diagnostics_path = diagnostics_path
+        self.error_count = error_count
+        message = (f"restic {operation} failed (exit {exit_code}; reported errors: {error_count}); "
+                   "no complete recovery set published")
+        if diagnostics_path is not None:
+            message += f"; private diagnostics: {diagnostics_path}"
+        super().__init__(message)
+
+
 def now():
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
@@ -280,13 +295,109 @@ class Restic:
             raise RecoveryError("Restic 0.17 or newer is required")
         self.version = version.strip()
 
-    def run(self, args, *, timeout=None):
+    def run(self, args, *, timeout=None, diagnostics_path=None):
+        """Drain both pipes; retain bounded native error details only privately."""
+        if diagnostics_path is not None:
+            diagnostics_path = absolute(diagnostics_path)
+            private_directory(diagnostics_path.parent)
+            if diagnostics_path.is_symlink():
+                raise RecoveryError("Symlinked restic diagnostics destination")
+        report = {"schema": "farm.recovery-restic-diagnostics/1", "operation": str(args[0]),
+                  "started_at": now(), "exit_code": None, "error_count": 0, "errors": [],
+                  "errors_dropped": 0, "malformed_stderr_records": 0, "summary": None}
+        reported_errors = 0
+        summary_numbers = {"files_new", "files_changed", "files_unmodified", "dirs_new", "dirs_changed",
+                           "dirs_unmodified", "data_blobs", "tree_blobs", "data_added", "data_added_packed",
+                           "total_files_processed", "total_bytes_processed", "total_duration"}
+
+        def counter(value):
+            return value if type(value) is int and 0 <= value <= 2 ** 64 - 1 else 0
+
+        def retain_error(event):
+            nonlocal reported_errors
+            kind = event.get("message_type")
+            if kind == "error":
+                reported_errors += 1
+                report["error_count"] = max(report["error_count"], reported_errors)
+                details = {"message_type": kind}
+                for field, limit in (("during", 128), ("item", 4096)):
+                    if isinstance(event.get(field), str):
+                        details[field] = event[field][:limit]
+                error = event.get("error")
+                if isinstance(error, dict) and isinstance(error.get("message"), str):
+                    details["error"] = {"message": error["message"][:4096]}
+            elif kind == "exit_error":
+                details = {"message_type": kind}
+                if type(event.get("code")) is int:
+                    details["code"] = event["code"]
+                if isinstance(event.get("message"), str):
+                    details["message"] = event["message"][:4096]
+            else:
+                return False
+            if len(report["errors"]) < 128:
+                report["errors"].append(details)
+            else:
+                report["errors_dropped"] += 1
+            return True
+
+        def backup_event(line):
+            nonlocal last_progress
+            try:
+                event = json.loads(line)
+            except (ValueError, RecursionError) as exc:
+                raise RecoveryError("Invalid restic backup progress record") from exc
+            if not isinstance(event, dict):
+                raise RecoveryError("Invalid restic backup progress record")
+            if event.get("message_type") == "summary":
+                summary = {"message_type": "summary"}
+                for key in summary_numbers:
+                    value = event.get(key)
+                    if type(value) in (int, float) and 0 <= value <= 2 ** 64 - 1:
+                        summary[key] = value
+                snapshot = event.get("snapshot_id")
+                if isinstance(snapshot, str) and re.fullmatch(r"[0-9a-f]{64}", snapshot):
+                    summary["snapshot_id"] = snapshot
+                if type(event.get("dry_run")) is bool:
+                    summary["dry_run"] = event["dry_run"]
+                for key in ("backup_start", "backup_end"):
+                    value = event.get(key)
+                    if isinstance(value, str) and len(value) <= 128:
+                        try:
+                            stamp = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            if stamp.tzinfo is not None:
+                                summary[key] = value
+                        except ValueError:
+                            pass
+                report["summary"] = summary
+                output.extend(json.dumps(summary).encode("utf-8") + b"\n")
+                if len(output) > 1024 * 1024:
+                    raise RecoveryError("Restic summary response exceeded the bounded output limit")
+            elif event.get("message_type") == "status":
+                report["error_count"] = max(report["error_count"], counter(event.get("error_count")))
+                if time.monotonic() - last_progress > 30:
+                    print(json.dumps({"phase": "backup", "bytes_done": counter(event.get("bytes_done")),
+                                      "files_done": counter(event.get("files_done")),
+                                      "error_count": report["error_count"]}), flush=True)
+                    last_progress = time.monotonic()
+            else:
+                retain_error(event)
+
+        def stderr_event(line):
+            try:
+                event = json.loads(line)
+            except (ValueError, RecursionError):
+                report["malformed_stderr_records"] += 1
+                return
+            if not isinstance(event, dict) or not retain_error(event):
+                report["malformed_stderr_records"] += 1
+
         argv = [self.binary, "--repo", str(self.repo), "--password-file", str(self.password),
                 "--no-cache", "--json", *map(str, args)]
         # Do not inherit RESTIC_PASSWORD_COMMAND, repository overrides or cloud credentials.
         proc = subprocess.Popen(argv, env=clean_env(),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, pending = bytearray(), bytearray()
+        output, pending, stderr_pending = bytearray(), bytearray(), bytearray()
+        stderr_discarding = False
         started = last_progress = time.monotonic()
         try:
             with selectors.DefaultSelector() as selector:
@@ -301,7 +412,24 @@ class Restic:
                             selector.unregister(key.fileobj)
                             continue
                         if key.data == "stderr":
-                            continue  # never retain native stderr/credential-bearing paths
+                            # Native paths/messages may contain secrets. Never print
+                            # them, and discard non-JSON/oversized lines while draining.
+                            stderr_pending.extend(chunk)
+                            while b"\n" in stderr_pending:
+                                line, _, rest = stderr_pending.partition(b"\n")
+                                stderr_pending = bytearray(rest)
+                                if stderr_discarding:
+                                    stderr_discarding = False
+                                elif len(line) > 1024 * 1024:
+                                    report["malformed_stderr_records"] += 1
+                                elif line.strip():
+                                    stderr_event(line)
+                            if len(stderr_pending) > 1024 * 1024:
+                                if not stderr_discarding:
+                                    report["malformed_stderr_records"] += 1
+                                stderr_discarding = True
+                                stderr_pending.clear()
+                            continue
                         if args[0] != "backup":
                             output.extend(chunk)
                             if len(output) > 32 * 1024 * 1024:
@@ -313,20 +441,16 @@ class Restic:
                             pending = bytearray(rest)
                             if not line:
                                 continue
-                            event = json.loads(line)
-                            if event.get("message_type") == "summary":
-                                output.extend(line + b"\n")
-                            elif event.get("message_type") == "status" and time.monotonic() - last_progress > 30:
-                                print(json.dumps({"phase": "backup", "bytes_done": event.get("bytes_done"),
-                                                  "files_done": event.get("files_done")}), flush=True)
-                                last_progress = time.monotonic()
+                            if len(line) > 1024 * 1024:
+                                raise RecoveryError("Restic progress record exceeded the bounded output limit")
+                            backup_event(line)
                         if len(pending) > 1024 * 1024:
                             raise RecoveryError("Restic progress record exceeded the bounded output limit")
                 proc.wait()
             if pending.strip():
-                event = json.loads(pending)
-                if event.get("message_type") == "summary":
-                    output.extend(pending + b"\n")
+                backup_event(pending)
+            if stderr_pending.strip() and not stderr_discarding:
+                stderr_event(stderr_pending)
         except BaseException:
             proc.terminate()
             try:
@@ -338,8 +462,12 @@ class Restic:
         finally:
             proc.stdout.close()
             proc.stderr.close()
+            report.update(finished_at=now(), exit_code=proc.returncode)
+            if diagnostics_path is not None:
+                write_json(diagnostics_path, report)
         if proc.returncode:
-            raise RecoveryError(f"restic {args[0]} failed (exit {proc.returncode}); no complete recovery set published")
+            raise ResticError(args[0], proc.returncode, summary=report["summary"],
+                              diagnostics_path=diagnostics_path, error_count=report["error_count"])
         return output.decode("utf-8")
 
     def json(self, args):
@@ -396,7 +524,8 @@ def escape_pattern(path):
 
 def exclusions_for(policy, drive, password, state, captures):
     result = set(policy.get("exclude_paths", []))
-    result.update([str(drive), str(password), str(state / "operation.lock"), str(state / "receipts")])
+    result.update([str(drive), str(password), str(state / "operation.lock"), str(state / "receipts"),
+                   str(state / "diagnostics")])
     result.update(captures.get("exclusions", []))
     if policy["mode"] == "server":
         # Explicitly list all mount boundaries, including same-device bind mounts.
@@ -484,6 +613,7 @@ def backup(args, policy):
         receipts = private_directory(state / "receipts")
         receipt_path = receipts / (run_id + ".json")
         receipt = {"schema": "farm.recovery-run/1", "id": run_id, "started_at": now(), "status": "incomplete"}
+        diagnostics_path = state / "diagnostics" / (run_id + ".json")
         write_json(receipt_path, receipt)
         try:
             print(json.dumps({"phase": "manifest", "run_id": run_id}), flush=True)
@@ -528,7 +658,8 @@ def backup(args, policy):
                 argv.extend(["--exclude", escape_pattern(path)])
             argv.extend(["--", *map(str, roots), str(stage)])
             print(json.dumps({"phase": "backup", "run_id": run_id}), flush=True)
-            events = [json.loads(line) for line in engine.run(argv).splitlines() if line.strip()]
+            events = [json.loads(line) for line in engine.run(argv, diagnostics_path=diagnostics_path).splitlines()
+                      if line.strip()]
             summaries = [v for v in events if v.get("message_type") == "summary"]
             if len(summaries) != 1 or not summaries[0].get("snapshot_id"):
                 raise RecoveryError("No unique successful restic snapshot summary")
@@ -546,6 +677,10 @@ def backup(args, policy):
             return receipt
         except BaseException as exc:
             receipt.update(finished_at=now(), error=type(exc).__name__)
+            if isinstance(exc, ResticError):
+                receipt.update(restic_exit_code=exc.exit_code, restic_summary=exc.summary,
+                               restic_error_count=exc.error_count,
+                               diagnostics_path=str(exc.diagnostics_path) if exc.diagnostics_path else None)
             write_json(receipt_path, receipt)
             raise
 

@@ -181,6 +181,22 @@ complete recovery set. Only successful backup plus repository check receives the
 complete tag. The check validates repository structure; use `check --read-data`
 for full stored-data verification and rehearse restores separately.
 
+Backup attempts retain bounded structured Restic errors and their snapshot
+summary in `/var/lib/farm-recovery/diagnostics/<run-id>.json`. The directory is
+private (0700), reports are 0600, and failed run receipts link to the report.
+Source paths and native error messages stay in these private reports; journal
+progress includes only an error count. Diagnostics are excluded from the backup
+payload. Oversized or unstructured stderr is counted and discarded, and reports
+record when the retained error list was truncated. This cannot recover details
+discarded by older runner versions.
+
+Exit 3 means some source data could not be read. Preserve the incomplete
+snapshot and inspect the private report before deciding what to retry. When
+kernel or device-health evidence also shows source-drive read failures, assess
+recovery of that drive before broad scans, repeated backups, or repairs. A
+Restic dry run can read new or changed source files; it is not just a metadata
+inspection. Never treat an incomplete snapshot as a complete recovery set.
+
 Restic stores new content chunks once and reuses unchanged content between
 snapshots. File and metadata changes remain recoverable by snapshot; deletion
 from the source does not delete the older snapshot's copy. See upstream
