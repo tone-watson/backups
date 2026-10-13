@@ -1,6 +1,12 @@
 # Changelog
 
 
+## v1.7.1 - 2026-10-13
+### CHANGED:
+- Accept nanosecond Restic timestamps in retry preparation
+- Prepare reviewed incomplete backup for incremental retry
+
+
 ## v1.7.0 - 2026-10-13
 ### CHANGED:
 - Retain private diagnostics for incomplete Restic backups
