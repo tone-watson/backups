@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.7.0 - 2026-10-13
+### CHANGED:
+- Retain private diagnostics for incomplete Restic backups
+
+
 ## v1.6.0 - 2026-10-12
 ### CHANGED:
 - Add guarded external backup drive operator
