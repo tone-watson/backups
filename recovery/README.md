@@ -202,6 +202,36 @@ snapshots. File and metadata changes remain recoverable by snapshot; deletion
 from the source does not delete the older snapshot's copy. See upstream
 [backup behavior](https://restic.readthedocs.io/en/stable/040_backup.html).
 
+### Reviewed October 13 retry
+
+`prepare-backup-retry.py` is narrowly tied to failed run
+`3beac83e7baa422c842a159dcf41731a`. The known unreadable generated coverage
+report was removed by the owner. The helper checks that it remains absent,
+the failed job is stopped, the capture journal records restored services, and
+the enrolled repository contains the matching pending snapshot. It also
+refuses newer run receipts, an existing preservation destination, or ambiguous
+stage ownership. It holds the lifecycle and existing state/drive locks.
+
+Without `--execute`, the helper only checks metadata. With `--execute`, it
+renames `current/` to `failed-3beac83e7baa422c842a159dcf41731a` within the same
+private state directory and records preparation evidence. This preserves the
+capture payload without copying it. The owner's SMART baseline (26 media
+errors, 123 error-log entries, 16 unsafe shutdowns) is recorded explicitly as
+user-reported, not as a new device query.
+
+```sh
+sudo /usr/bin/python3 -I -S -B /srv/farm/sys/backups/recovery/prepare-backup-retry.py --execute
+```
+
+After preparation succeeds, `farm backup start` starts a new incremental run
+against the existing repository. It scans source metadata, takes fresh
+consistent captures and reads new or changed content while reusing stored
+chunks; it does not resume at a saved file cursor. The preparation helper never
+starts a backup, changes services, modifies snapshots or forces a full reread.
+After the next run, compare a fresh SMART report with the recorded baseline and
+review its private Restic diagnostics before deciding on any further retry.
+No installation or service restart is required for this helper.
+
 ## Retention
 
 Preview keeping all complete snapshots within 90 days of the latest snapshot,
