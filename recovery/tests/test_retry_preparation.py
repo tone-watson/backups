@@ -1,10 +1,13 @@
 """Incident retry preparation fixtures never query or alter the real host."""
 import contextlib
+import datetime as dt
 import errno
 import fcntl
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 from types import SimpleNamespace
 import tempfile
 import unittest
@@ -18,6 +21,7 @@ spec.loader.exec_module(retry)
 runner_spec = importlib.util.spec_from_file_location("farm_retry_runner_fixture", HERE / "farm_recovery.py")
 runner = importlib.util.module_from_spec(runner_spec)
 runner_spec.loader.exec_module(runner)
+RESTIC = os.environ.get("FARM_TEST_RESTIC") or shutil.which("restic")
 
 
 class RetryPreparationTests(unittest.TestCase):
@@ -240,6 +244,70 @@ class RetryPreparationTests(unittest.TestCase):
                     self.prepare(execute=True)
                 self.assert_preserved_in_place()
 
+    def test_nanosecond_snapshot_can_be_preserved(self):
+        self.snapshot["time"] = "2026-10-12T21:42:22.123456789Z"
+        result = self.prepare(execute=True)
+        self.assertEqual(result["status"], "preserved-for-retry")
+        self.assertFalse(self.current.exists())
+        self.assertTrue(self.destination.is_dir())
+
+    def test_json_failure_reports_code_location_without_private_values(self):
+        (self.current / "selection.json").write_text("private-source-path-secret")
+        try:
+            self.prepare(execute=True)
+        except ValueError as exc:
+            message = retry.failure_message(exc)
+        else:
+            self.fail("Malformed JSON was accepted")
+        self.assertIn("JSONDecodeError in read_json (prepare-backup-retry.py:", message)
+        self.assertNotIn("private-source-path-secret", message)
+        self.assert_preserved_in_place()
+
+    def test_nanosecond_chronology_bounds_are_not_rounded(self):
+        self.run.update(started_at="2026-10-12T21:41:34.123456+00:00",
+                        finished_at="2026-10-13T13:02:31.123456+00:00")
+        self.write_json(self.receipts / (retry.RUN_ID + ".json"), self.run)
+        for value, allowed in (
+            ("2026-10-12T21:41:34.123455999Z", False),
+            ("2026-10-12T21:41:34.123456000Z", True),
+            ("2026-10-13T13:02:31.123456000Z", True),
+            ("2026-10-13T13:02:31.123456001Z", False),
+        ):
+            self.snapshot["time"] = value
+            with self.subTest(value=value):
+                if allowed:
+                    self.assertEqual(self.prepare()["status"], "checks-passed-no-changes")
+                else:
+                    with self.assertRaisesRegex(RuntimeError, "chronology differs"):
+                        self.prepare(execute=True)
+                self.assert_preserved_in_place()
+
+    @unittest.skipUnless(RESTIC, "Set FARM_TEST_RESTIC to exercise actual snapshot timestamps")
+    def test_actual_restic_snapshot_metadata_passes_preparation(self):
+        # Only disposable fixture sources/repository; no production paths.
+        source = Path(self.policy["source_roots"][0])
+        source.mkdir(mode=0o700)
+        (source / "value.txt").write_text("disposable fixture data")
+        password = self.root / "password"
+        password.write_text("disposable fixture password\n")
+        password.chmod(0o600)
+        engine = runner.Restic(RESTIC, self.drive / "repository", password)
+        engine.run(["init"])
+        started = dt.datetime.now(dt.timezone.utc)
+        self.prior["finished_at"] = (started - dt.timedelta(seconds=1)).isoformat()
+        self.write_json(self.receipts / (retry.PRIOR_RUN_ID + ".json"), self.prior)
+        self.run["started_at"] = started.isoformat()
+        engine.run(["backup", "--host", self.policy["host_id"], "--one-file-system",
+                    "--tag", "farm-recovery", "--tag", "pending", "--tag", "run-" + retry.RUN_ID,
+                    "--", str(source), str(self.current)])
+        self.run["finished_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        self.write_json(self.receipts / (retry.RUN_ID + ".json"), self.run)
+        self.recovery.open_repository.return_value = (self.drive, engine)
+        result = self.prepare()
+        self.assertEqual(result["status"], "checks-passed-no-changes")
+        self.assertRegex(result["pending_snapshot_id"], r"^[a-f0-9]{64}$")
+        self.assert_preserved_in_place()
+
     def test_unrestored_capture_and_changed_capture_receipt_block(self):
         for change in ({"status": "incomplete"}, {"errors": ["read error"]},
                        {"service_restoration": []}, {"service_actions": []},
@@ -341,6 +409,28 @@ class RetryPreparationTests(unittest.TestCase):
         self.assertEqual(preserved.stat().st_ino, original_inode)
         self.assertEqual(preserved.read_bytes(), b"preserve exact original capture bytes\x00\xff")
         self.assertFalse((self.destination / "retry-preparation.json").exists())
+
+
+class TimestampTests(unittest.TestCase):
+    def test_variable_fraction_precision_and_equivalent_offsets(self):
+        for digits in range(1, 10):
+            fraction = "123456789"[:digits]
+            with self.subTest(digits=digits):
+                utc = retry.timestamp("2026-10-12T21:42:22." + fraction + "Z")
+                chicago = retry.timestamp("2026-10-12T16:42:22." + fraction + "-05:00")
+                self.assertEqual(utc, chicago)
+                self.assertEqual(utc[1], int(fraction.ljust(9, "0")))
+        self.assertEqual(retry.timestamp("2026-10-12T21:42:22Z"),
+                         retry.timestamp("2026-10-12T21:42:22.000000000+00:00"))
+
+    def test_malformed_timestamps_have_controlled_errors(self):
+        for value in (None, "private-source-path-secret", "2026-10-12T21:42:22",
+                      "2026-10-12T21:42:22.1234567890Z", "2026-10-12T21:42:22+00:60",
+                      "2026-10-12T21:42:22+24:00", "2026-10-32T21:42:22Z",
+                      "2026-10-12T25:42:22Z"):
+            with self.subTest(value=value), self.assertRaises(RuntimeError) as raised:
+                retry.timestamp(value)
+            self.assertNotIn("private-source-path-secret", str(raised.exception))
 
 
 if __name__ == "__main__":

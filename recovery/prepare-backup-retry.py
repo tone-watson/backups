@@ -89,10 +89,34 @@ def unit_state(unit, operator):
 
 
 def timestamp(value):
+    """Compare RFC3339 timestamps exactly, including Restic's nanoseconds."""
     require(isinstance(value, str), "Missing metadata timestamp")
-    value = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-    require(value.tzinfo is not None, "Metadata timestamp has no timezone")
-    return value
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+                         r"(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})", value, re.ASCII)
+    require(match is not None, "Invalid metadata timestamp; expected timezone-qualified RFC3339")
+    seconds, fraction, zone = match.groups()
+    require(zone == "Z" or (int(zone[1:3]) < 24 and int(zone[4:6]) < 60),
+            "Invalid metadata timestamp timezone")
+    try:
+        whole = dt.datetime.fromisoformat(seconds + ("+00:00" if zone == "Z" else zone))
+    except (ValueError, OverflowError):
+        raise RuntimeError("Invalid metadata timestamp calendar value") from None
+    # Python 3.10 accepts only three or six fractional digits. Keep the
+    # fraction separate so sub-microsecond chronology guards remain exact.
+    return whole, int((fraction or "").ljust(9, "0"))
+
+
+def failure_message(exc):
+    if isinstance(exc, RuntimeError):
+        return str(exc)
+    # Include code location, never native error text, source lines or locals.
+    message, frame = type(exc).__name__, exc.__traceback__
+    while frame is not None:
+        code = frame.tb_frame.f_code
+        if code.co_filename == __file__:
+            message = f"{type(exc).__name__} in {code.co_name} ({Path(__file__).name}:{frame.tb_lineno})"
+        frame = frame.tb_next
+    return message
 
 
 def capture_receipt(current, policy):
@@ -229,5 +253,4 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        message = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
-        raise SystemExit("STOPPED: " + message)
+        raise SystemExit("STOPPED: " + failure_message(exc))
