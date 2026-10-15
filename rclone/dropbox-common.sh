@@ -5,9 +5,9 @@ acquire_dropbox_lock() {
     local lock_file="${1:-/srv/farm/logs/farm-dropbox-upload.lock}"
     local status
 
-    # Acquire after tee is started, so logging processes do not retain this FD.
-    # Children inherit FD 9: a surviving upload must keep blocking other jobs
-    # even if its shell exits. Never unlink the lock or explicitly flock -u it.
+
+
+
     exec 9>>"$lock_file"
     if flock --exclusive --nonblock --conflict-exit-code 75 9; then
         return 0
@@ -28,8 +28,8 @@ run_dropbox_upload() {
     local status
 
     echo "Dropbox upload budget: 1 MiB/s, one transfer, time limit $duration"
-    # The time budget begins after the shared lock is acquired. Flags are
-    # explicit so rclone environment defaults cannot remove the bandwidth cap.
+
+
     if timeout --kill-after=1m "$duration" rclone sync "$@" \
         --bwlimit 1M \
         --transfers 1 \

@@ -53,8 +53,8 @@ def _paths(values, name):
 def sanitize_remote(value):
     """Keep remote identity without URL userinfo, query strings or fragments."""
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*::", value):
-        # Git's ext::<command> and other remote helpers can embed arbitrary
-        # command arguments or credentials rather than a URL identity.
+
+
         return "[remote helper specification redacted]"
     if "://" in value:
         try:
@@ -171,7 +171,7 @@ def _small_regular(path, maximum=65536):
 
 
 def _mount_points():
-    # This proc file supplies mount topology; virtual filesystem payloads are not scanned.
+
     data = _small_regular("/proc/self/mountinfo", 1024 * 1024)
     decode = lambda s: re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), s)
     return {os.path.normpath(decode(line.split()[4])) for line in data.splitlines()
@@ -355,8 +355,8 @@ class _Collector:
                         complete = False
                         break
                     children.append(child.name)
-            # Known interpreter markers are outside arbitrary credential/config
-            # payloads and are bounded below. Record them even in pruned envs.
+
+
             for name in ("pyvenv.cfg", ".python-version"):
                 target = os.path.join(path, name)
                 if os.path.lexists(target):
@@ -429,14 +429,14 @@ class _Collector:
         marker_meta = _metadata(marker)
         marker_kind = None
         if marker_meta["status"] == "FileNotFoundError":
-            # An uninitialized submodule's directory can exist without its own
-            # repository. Git would otherwise walk upward into the parent.
+
+
             marker_kind = "no_checkout_marker"
         elif marker_meta["status"] != "observed":
             self.error(marker, "git_marker_metadata", marker_meta["status"])
             return
         elif marker_meta["mode"].startswith("-") and marker_meta["size_bytes"] == 0:
-            # uv uses empty .git files to prevent Git discovery in cache trees.
+
             marker_kind = "empty_git_marker"
         elif marker_meta["mode"].startswith("d"):
             try:
@@ -484,8 +484,8 @@ class _Collector:
                     if os.path.isdir(nested) and item["checkout_status"] == "git_marker_present":
                         self.candidates.add(nested)
                 entries.append(item)
-        # ls-files --debug reads the index only. It does not refresh, hash working
-        # files, invoke clean/process filters or launch a configured fsmonitor.
+
+
         debug = self.git(path, "ls-files", "--debug", "-z")
         changes = []
         if debug is not None:
@@ -583,8 +583,8 @@ class _Collector:
         if worktrees is not None:
             fields = [os.fsdecode(field) for field in worktrees.split(b"\0")]
         else:
-            # Ubuntu 22.04's Git 2.34 predates worktree list -z. Porcelain
-            # C-quotes unusual paths; core.quotePath=false keeps UTF-8 intact.
+
+
             worktrees = self.git(path, "worktree", "list", "--porcelain")
             if worktrees is not None:
                 fields = worktrees.decode("utf-8", "surrogateescape").splitlines()
@@ -604,7 +604,7 @@ class _Collector:
                         self.error(path, "git_worktrees", "unsupported_quoted_path")
                         value = ""
                 if key in {"worktree", "HEAD", "branch", "detached", "bare", "locked", "prunable"}:
-                    # Reasons for locks/prunable entries are arbitrary text; keep only the flag.
+
                     item[key] = True if key in {"locked", "prunable", "detached", "bare"} else value
             if item:
                 self.add_worktree(path, common, item)
@@ -620,9 +620,9 @@ class _Collector:
             self.reference(owner, target, "git_worktree")
             return
         item.update(common_git_dir=common, metadata=_metadata(target))
-        # Git 2.34 reports a submodule's absorbed common git directory as its
-        # first `worktree list` entry. Bare repositories likewise report their
-        # storage directory. Neither is a checkout or a reason to scan objects.
+
+
+
         metadata_store = item.get("bare") or os.path.realpath(target) == common
         item["entry_kind"] = "git_metadata_directory" if metadata_store else "checkout"
         self.result["git"]["registered_worktrees"].append(item)
@@ -708,8 +708,8 @@ class _Collector:
             host[name] = {"status": result["status"], "returncode": result.get("returncode"),
                           "output": result["output"].decode("utf-8", "replace") if result["status"] == "ok" else ""}
             if name == "current_service_states" and result["status"] == "ok":
-                # Drop arbitrary unit descriptions; retain fixed identity/state
-                # columns, never Environment, command values or service logs.
+
+
                 output = host[name].pop("output")
                 entries = []
                 for line in output.splitlines():

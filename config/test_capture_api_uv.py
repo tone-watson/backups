@@ -272,7 +272,7 @@ class CaptureTests(unittest.TestCase):
         content = lock.read_bytes()
         lock.unlink()
         self.commit()
-        lock.write_bytes(content)  # Prepared but uncommitted is not recoverable HEAD.
+        lock.write_bytes(content)
         with self.assertRaises(subprocess.CalledProcessError):
             capture.capture(self.repo, self.destination)
         self.assertEqual(json.loads((self.destination / "capture.json").read_text())["status"], "incomplete")

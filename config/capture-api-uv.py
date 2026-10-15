@@ -82,8 +82,8 @@ def local_wheels(lock, wheel_root):
         if line.endswith("\\"):
             continue
         requirement, logical = logical, ""
-        # Current recipes use version pins, HTTPS wheels or file:// wheels.
-        # Refuse extra include/options and unsupported local path syntax.
+
+
         match = re.fullmatch(
             r"[A-Za-z0-9][A-Za-z0-9._-]*(?:==[^\s]+|\s+@\s+(\S+))"
             r"(?:\s+--hash=sha256:[0-9a-f]{64})+", requirement,
@@ -117,7 +117,7 @@ def capture_upstream(repo, revision, destination):
         artifacts = {}
         locks = {}
         for filename in UPSTREAM_LOCKS[profile]:
-            # Graphiti's two profiles share one bundle; copy shared wheels once.
+
             prefix = "" if profile == "graphiti" else profile + "/"
             relative = "deploy/upstream/" + prefix + filename
             lock = git(repo, "show", revision + ":" + relative)
@@ -200,8 +200,8 @@ def capture_sd_environment(destination):
     if not data or len(data) > 65536:
         raise ValueError("Stable Diffusion environment is empty or unexpectedly large")
     target = destination / "service.env"
-    # Atomic replacement creates an independent 0600 file, including when an
-    # earlier destination is a hardlink. Source ownership/mode never changes.
+
+
     write_bytes(target, data)
     with regular(target) as saved:
         if saved.read(65537) != data:

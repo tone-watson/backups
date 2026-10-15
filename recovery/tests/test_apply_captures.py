@@ -278,8 +278,8 @@ class ApplyCaptureTests(unittest.TestCase):
         up = tarfile.TarInfo("offline/dir/up")
         up.type, up.linkname = tarfile.SYMTYPE, ".."
         escaped = tarfile.TarInfo("offline/link")
-        # Lexical normalization is inside offline/, but following dir/up first
-        # makes the remaining '..' escape offline/.
+
+
         escaped.type, escaped.linkname = tarfile.SYMTYPE, "dir/up/../outside"
         self.tar([(directory, b""), (up, b""), (escaped, b"")])
         self.manifest()
@@ -313,7 +313,7 @@ class ApplyCaptureTests(unittest.TestCase):
         self.sqlite()
         self.manifest()
         with mock.patch.object(apply.os, "setxattr", side_effect=OSError("fixture")):
-            # No attrs means no setxattr call; instead fail publication itself.
+
             with mock.patch.object(apply.os, "link", side_effect=OSError("fixture")):
                 with self.assertRaises(apply.ApplyError):
                     apply.apply_captures(self.target, self.captures)

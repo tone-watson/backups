@@ -101,15 +101,15 @@ def timestamp(value):
         whole = dt.datetime.fromisoformat(seconds + ("+00:00" if zone == "Z" else zone))
     except (ValueError, OverflowError):
         raise RuntimeError("Invalid metadata timestamp calendar value") from None
-    # Python 3.10 accepts only three or six fractional digits. Keep the
-    # fraction separate so sub-microsecond chronology guards remain exact.
+
+
     return whole, int((fraction or "").ljust(9, "0"))
 
 
 def failure_message(exc):
     if isinstance(exc, RuntimeError):
         return str(exc)
-    # Include code location, never native error text, source lines or locals.
+
     message, frame = type(exc).__name__, exc.__traceback__
     while frame is not None:
         code = frame.tb_frame.f_code
@@ -148,11 +148,11 @@ def prepare(*, recovery, operator, policy, profile, execute=False, query=unit_st
     with operator._lifecycle():
         operator._busy(profile)
         operator._validate_repository(profile)
-        # The lifecycle gate covers new runners; these held locks also exclude
-        # older runners that predate that gate. Preserve the runner's lock order.
+
+
         with existing_lock(drive / ".farm-recovery.lock"), existing_lock(state / "operation.lock"):
             query(UNIT, operator)
-            # An I/O or permission error is not proof that the source is gone.
+
             try:
                 BAD_SOURCE.lstat()
             except FileNotFoundError:
@@ -163,8 +163,8 @@ def prepare(*, recovery, operator, policy, profile, execute=False, query=unit_st
             require(read_json(state / ".farm-recovery-state.json").get("schema") == "farm.recovery-state/1",
                     "Unknown recovery state marker")
             receipts = private(state / "receipts", directory=True)
-            # This incident has exactly two reviewed attempts. An additional
-            # receipt means the current stage may belong to another attempt.
+
+
             with os.scandir(receipts) as entries:
                 names = []
                 for entry in entries:

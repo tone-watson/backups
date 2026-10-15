@@ -40,7 +40,7 @@ def _read_file(path, *, aliases=False):
     path = Path(path)
     links = []
     if aliases:
-        # Debian's /lib is a symlink. Preserve its identity and age as well.
+
         for candidate in reversed((path, *path.parents)):
             info = candidate.lstat()
             if stat.S_ISLNK(info.st_mode):
@@ -73,8 +73,8 @@ def _configuration(path):
         line = line.strip(' \t\r\n')
         if not line or line.startswith('#'):
             continue
-        # Redis uses its own quoting rules, not shell syntax. Reject ambiguous
-        # directive names rather than missing a quoted/escaped include or dir.
+
+
         matched = re.fullmatch(r'([A-Za-z][A-Za-z0-9-]*)(?:[ \t]+(.*))?', line)
         if matched is None:
             _fail('Redis config contains unsupported directive syntax')
@@ -238,8 +238,8 @@ def verify_disabled_config(config, source: Path, run, timeout) -> dict:
         if persistence.get('aof_enabled') != '0' or persistence.get('loading') != '0':
             _fail('Redis must have AOF disabled and finish loading before capture')
         process = _process_context(service['pid'], config_file, source.parent, service['executable'])
-        # MainPID and Redis run_id also guard PID reuse. Check the kernel's
-        # process start against systemd's monotonic launch time independently.
+
+
         kernel_us = process['started_ticks'] * 1_000_000 // os.sysconf('SC_CLK_TCK')
         if abs(kernel_us - service['started_monotonic_us']) > 1_000_000:
             _fail('Redis kernel and service process start identities differ')

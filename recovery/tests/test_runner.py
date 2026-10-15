@@ -214,7 +214,7 @@ class RoundTripTests(unittest.TestCase):
         before = self.snapshots()
         (self.source / "value").write_text("new")
         wrapper = self.root / "fail-restic"
-        # Execute a real snapshot, then simulate restic's unreadable-source exit.
+
         wrapper.write_text("#!/usr/bin/python3\nimport subprocess,sys\n"
                            f"result=subprocess.run([{RESTIC!r},*sys.argv[1:]])\n"
                            "raise SystemExit(3 if 'backup' in sys.argv else result.returncode)\n")

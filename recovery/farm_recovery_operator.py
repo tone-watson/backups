@@ -113,13 +113,13 @@ def _publish(value):
     st = PUBLIC.stat()
     if st.st_uid != 0 or st.st_mode & 0o022:
         raise OperatorError("Unsafe public status directory")
-    # The detached runner uses umask 0077; mkdir(mode=0755) alone leaves 0700.
-    # Only this dedicated, validated directory contains public sanitized state.
+
+
     PUBLIC.chmod(0o755)
     old = _read_json(PUBLIC / "latest.json", public=True) if (PUBLIC / "latest.json").exists() else {}
     if value.get("status") != "complete":
         value["last_backup"] = old.get("last_backup")
-    # All callers construct this allowlist; never serialize native errors or receipts.
+
     allowed = {"schema", "status", "unit", "run_id", "phase", "bytes_done", "files_done",
                "updated_at", "started_at", "finished_at", "last_backup", "snapshot_id", "invocation_id", "pid"}
     value = {key: item for key, item in value.items() if key in allowed}
@@ -206,7 +206,7 @@ def _device(profile):
         raise OperatorError("Registered backup filesystem is missing or ambiguous")
     if str(Path(profile["partition_by_id"]).resolve(strict=True)) != matches[0]["name"]:
         raise OperatorError("Backup partition hardware identity changed")
-    # This registered drive has one partition. Any layout change needs review.
+
     if len(descendants) != 2:
         raise OperatorError("Backup disk layout changed; review before operating")
     return {"disk": disk_path, "device": matches[0]["name"], "nodes": descendants}
@@ -253,7 +253,7 @@ def _busy(profile, *, ignore_unit=None, ignore_reservation=False):
 
 def _mountpoint(profile):
     path = recovery.real_directory(profile["mountpoint"])
-    # The root-owned private mountpoint is established during drive setup.
+
     for parent in [path, *path.parents]:
         st = parent.stat()
         if st.st_uid != 0 or st.st_mode & 0o022:
@@ -288,8 +288,8 @@ def _ensure_mount(profile):
         raise OperatorError("Registered backup drive is disconnected")
     if any(any(p for p in node.get("mountpoints", [])) for node in device["nodes"]):
         raise OperatorError("Backup drive is mounted elsewhere; refusing another mount")
-    # UUID lookup alone can choose a foreign cloned filesystem. Hardware was
-    # verified above; mount its stable partition identity and recheck afterward.
+
+
     _command(["/usr/bin/mount", "-o", "nodev,nosuid", profile["partition_by_id"], profile["mountpoint"]])
     _validate_repository(profile)
 
@@ -328,7 +328,7 @@ def start(profile):
             raise OperatorError("Operator policy state directory does not match its profile")
         recovery.validate_source_mounts(policy)
         recovery.managed_state(_private(Path(profile["state_dir"])))
-        # Authenticate the registered repository before accepting a launch.
+
         recovery.open_repository(_arguments(profile), policy)
         token = uuid.uuid4().hex
         unit = "farm-recovery-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + token[:8] + ".service"
@@ -342,8 +342,8 @@ def start(profile):
         try:
             _command(argv)
         except BaseException:
-            # A timed-out systemd-run may have launched successfully. Preserve the
-            # reservation unless systemd explicitly proves this unit never loaded.
+
+
             try:
                 observed = _command(["/usr/bin/systemctl", "show", unit, "--no-pager",
                                      "--property=LoadState,ActiveState,MainPID,ControlPID"])
@@ -385,7 +385,7 @@ def detach(profile, *, power_off=False):
         if mounted:
             _mountpoint(profile)
             _validate_repository(profile)
-            # No drive lock FD remains open here; that itself would make umount busy.
+
             _command(["/usr/bin/umount", "--", profile["mountpoint"]], timeout=120)
             if _mounted(profile):
                 raise OperatorError("Backup filesystem is still mounted")
@@ -398,8 +398,8 @@ def detach(profile, *, power_off=False):
             try:
                 _command(["/usr/bin/udisksctl", "power-off", "--block-device", profile["device_by_id"], "--no-user-interaction"], timeout=60)
             except (OperatorError, OSError):
-                # Recheck all safety conditions after a failed power-off. A
-                # holder/swap/identity error never grants permission to unplug.
+
+
                 if _device(profile) is not None:
                     _poweroff_device(profile)
                 return _result(action, status="partial", message="Drive is unmounted; power-off was not confirmed. It is safe to unplug",
@@ -547,8 +547,8 @@ def status(profile):
             return result
         result.update(unit=name, status="running" if _running(unit) else "unknown", message="Backup is running" if _running(unit) else "Completion is not confirmed")
         if (saved.get("unit"), saved.get("invocation_id"), saved.get("pid")) == identity:
-            # The sanitized durable summary survives journal rotation. It cannot
-            # establish current completion without matching identity and exit.
+
+
             result.update(phase=saved.get("phase"), run_id=saved.get("run_id"),
                           bytes_done=_number(saved.get("bytes_done")), files_done=_number(saved.get("files_done")),
                           progress_stale=time.time() - (_timestamp(saved.get("updated_at")) or 0) > 120)

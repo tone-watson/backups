@@ -92,7 +92,7 @@ Path(sys.argv[2]).write_text('fake redis snapshot')
         return self.launch(["bash", str(self.scripts / name)], job, **kwargs)
 
     def helper(self, job, duration, **kwargs):
-        # Arguments avoid shell interpolation of temporary paths.
+
         return self.launch([
             "bash", "-c",
             'set -euo pipefail; source "$1"; acquire_dropbox_lock "$2"; '
@@ -169,7 +169,7 @@ Path(sys.argv[2]).write_text('fake redis snapshot')
     def test_surviving_upload_retains_lock_after_wrapper_is_killed(self):
         first = self.helper("first", "3s", seconds="0.6")
         self.wait_for_start("first")
-        first.kill()  # Kill the wrapper, deliberately leaving its upload alive.
+        first.kill()
         second = self.helper("second", "2s")
         self.finish(second)
         self.finish(first, expected=-signal.SIGKILL)

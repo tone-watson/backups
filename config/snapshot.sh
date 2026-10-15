@@ -36,18 +36,18 @@
 
 set -uo pipefail
 
-# Colors for output (matches sys/dbops conventions)
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Configuration
+
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 SNAP_DIR="/var/backups/config-snapshot"
 LOG_FILE="/var/log/farm-config-snapshot.log"
-STAMP_FILE="/var/log/farm-config-snapshot.stamp"     # world-readable success heartbeat for health-check
+STAMP_FILE="/var/log/farm-config-snapshot.stamp"
 OWNER_USER="gradywoodruff"
 
 NGINX_SRC="/etc/nginx"
@@ -57,7 +57,7 @@ FARM_LINK_SRC="/usr/local/bin/farm"
 
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-# Track per-capture outcome so one missing piece doesn't abort the whole snapshot
+
 WARNINGS=()
 CAPTURED=()
 FAILURES=()
@@ -73,12 +73,12 @@ log() {
 
 warn() { WARNINGS+=("$1"); log "WARN" "  ${YELLOW}⚠ $1${NC}"; }
 ok()   { CAPTURED+=("$1"); log "INFO" "  ${GREEN}✓ $1${NC}"; }
-# crit: a warning that is ALSO DR-critical — the irreplaceable identity (cloudflared
-# tunnel credential, nginx/cloudflared config) failed to capture; keep that distinction in the local log.
+
+
 crit() { FAILURES+=("$1"); warn "DR-critical: $1"; }
 
-# Publish receipts atomically, including before any old capture is replaced.
-# json.dumps handles quotes/newlines in paths and avoids an invalid success receipt.
+
+
 write_manifest() {
     /usr/bin/python3 -I -S -B - "$SNAP_DIR" "$TIMESTAMP" \
         "$(hostname 2>/dev/null || echo unknown)" "$1" \
@@ -136,7 +136,7 @@ finally:
 PY
 }
 
-# Must be root (needed to read /etc/cloudflared)
+
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
     log "ERROR" "${RED}This script must run as root (it reads root-only /etc/cloudflared). Use sudo or the systemd unit.${NC}"
     exit 1
@@ -144,14 +144,14 @@ fi
 
 log "INFO" "${GREEN}=== Config snapshot starting ($TIMESTAMP) ===${NC}"
 
-# Create the snapshot dir, root-only (700). Recreate the per-run subdirs cleanly so
-# a removed source file doesn't linger in the snapshot.
+
+
 if [ -L "$SNAP_DIR" ] || ! mkdir -p "$SNAP_DIR" \
     || ! chown root:root "$SNAP_DIR" || ! chmod 700 "$SNAP_DIR"; then
     log "ERROR" "${RED}Cannot prepare root-only snapshot directory.${NC}"
     exit 1
 fi
-# Lock the directory itself: there is no lock-file symlink or inode to replace.
+
 if ! exec {SNAPSHOT_LOCK}<"$SNAP_DIR" || ! flock -n "$SNAPSHOT_LOCK"; then
     log "ERROR" "${RED}Cannot lock snapshot directory; another capture may be running.${NC}"
     exit 1
@@ -160,19 +160,19 @@ if ! write_manifest incomplete; then
     log "ERROR" "${RED}Cannot record an incomplete capture; snapshot contents were not replaced.${NC}"
     exit 1
 fi
-# uv is retained separately; do not recopy unchanged wheels on every run.
-# Clear the obsolete conda snapshot subtree too; retired runtimes are not exported.
+
+
 for sub in nginx cloudflared systemd crontab conda private; do
     rm -rf "${SNAP_DIR:?}/$sub" || crit "cannot clear snapshot subtree: $sub"
     mkdir -p "$SNAP_DIR/$sub" || crit "cannot create snapshot subtree: $sub"
 done
 
-# --- 1. nginx ---------------------------------------------------------------
+
 log "INFO" "${CYAN}Capturing nginx config...${NC}"
 if [ -d "$NGINX_SRC" ]; then
-    # sites-available + sites-enabled are the task-critical bits; nginx.conf, conf.d
-    # and the shared snippet(s) round out a working restore. -L deref'd so the
-    # sites-enabled symlinks land as real files in the snapshot.
+
+
+
     for item in sites-available sites-enabled nginx.conf conf.d cors-headers.conf mime.types; do
         if [ -e "$NGINX_SRC/$item" ] || [ -L "$NGINX_SRC/$item" ]; then
             cp -aL "$NGINX_SRC/$item" "$SNAP_DIR/nginx/" 2>/dev/null \
@@ -185,7 +185,7 @@ else
     crit "nginx: $NGINX_SRC not found"
 fi
 
-# --- 2. cloudflared (SENSITIVE) --------------------------------------------
+
 log "INFO" "${CYAN}Capturing cloudflared config + tunnel credential (SENSITIVE)...${NC}"
 if [ -d "$CLOUDFLARED_SRC" ]; then
     if [ -f "$CLOUDFLARED_SRC/config.yml" ]; then
@@ -194,7 +194,7 @@ if [ -d "$CLOUDFLARED_SRC" ]; then
     else
         crit "cloudflared/config.yml not found"
     fi
-    # The tunnel credential(s): <UUID>.json — the irreplaceable secret.
+
     cred_count=0
     shopt -s nullglob
     for cred in "$CLOUDFLARED_SRC"/*.json; do
@@ -214,17 +214,17 @@ else
     crit "cloudflared: $CLOUDFLARED_SRC not found"
 fi
 
-# --- 3. systemd units (farm-relevant, locally-defined) ----------------------
+
 log "INFO" "${CYAN}Capturing systemd units...${NC}"
 unit_count=0
 shopt -s nullglob
 for unit in "$SYSTEMD_SRC"/*.service "$SYSTEMD_SRC"/*.timer; do
-    # Only real files: vendor/enabled symlinks point into /lib and are regenerated
-    # by `systemctl enable`. The regular files here are THIS box's own unit defs.
+
+
     [ -f "$unit" ] && [ ! -L "$unit" ] || continue
     cp -a "$unit" "$SNAP_DIR/systemd/" 2>/dev/null && unit_count=$((unit_count + 1)) || crit "systemd/$(basename "$unit") copy failed"
 done
-# Preserve runtime overrides and delegated-resource settings as well as bases.
+
 for dropin in "$SYSTEMD_SRC"/*.service.d "$SYSTEMD_SRC"/*.timer.d; do
     [ -d "$dropin" ] && [ ! -L "$dropin" ] || continue
     cp -aL "$dropin" "$SNAP_DIR/systemd/" 2>/dev/null \
@@ -237,7 +237,7 @@ else
     crit "no locally-defined systemd units captured"
 fi
 
-# --- 4. crontab (owner + root) ---------------------------------------------
+
 log "INFO" "${CYAN}Capturing crontabs...${NC}"
 if command -v crontab >/dev/null 2>&1; then
     for cron_user in "$OWNER_USER" root; do
@@ -257,17 +257,17 @@ else
     crit "crontab command not available"
 fi
 
-# --- 5. reviewed API uv recovery artifacts ---------------------------------
+
 log "INFO" "${CYAN}Capturing API uv recovery recipes and verified wheels...${NC}"
-# Use the OS stdlib, not a runtime that may itself need restoration. The helper
-# never imports API/packages, changes source files, or creates source hardlinks.
+
+
 if (umask 077; /usr/bin/python3 -I -S -B "$SCRIPT_DIR/capture-api-uv.py" "$SNAP_DIR/uv/api"); then
     ok "uv/api: committed recipes, receipt, lock and verified wheelhouse"
 else
     crit "API uv recovery capture failed; inspect uv/api/capture.json and this log"
 fi
 
-# --- 5b. exact Stable Diffusion private environment --------------------------
+
 log "INFO" "${CYAN}Capturing Stable Diffusion private service environment...${NC}"
 if (umask 077; /usr/bin/python3 -I -S -B "$SCRIPT_DIR/capture-api-uv.py" \
         --stable-diffusion-env "$SNAP_DIR/private/stable-diffusion"); then
@@ -276,7 +276,7 @@ else
     crit "Stable Diffusion private environment missing or capture failed"
 fi
 
-# --- 6. apt installed list --------------------------------------------------
+
 log "INFO" "${CYAN}Capturing apt installed list...${NC}"
 if command -v apt >/dev/null 2>&1; then
     if apt list --installed > "$SNAP_DIR/apt-list.txt" 2>/dev/null && [ -s "$SNAP_DIR/apt-list.txt" ]; then
@@ -294,14 +294,14 @@ else
     crit "neither apt nor dpkg available"
 fi
 
-# --- 7. small provenance bits ----------------------------------------------
+
 ls -la "$FARM_LINK_SRC" > "$SNAP_DIR/farm-symlink.txt" 2>/dev/null \
     || warn "Farm launcher provenance unavailable"
 
-# Lock down everything we just wrote: dir tree 700/600, no group/other access.
-# uv files are independently created/repaired as 600 by capture-api-uv.py.
-# Exclude that retained subtree even after capture failure: blindly chmod/chown
-# on a pre-existing hardlink could change a source wheel's metadata.
+
+
+
+
 find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -exec chown -h root:root {} + \
     || crit "snapshot ownership lockdown failed"
 find "$SNAP_DIR" -path "$SNAP_DIR/uv" -prune -o -type d -exec chmod 700 {} + \
@@ -321,16 +321,16 @@ if [ "${#FAILURES[@]}" -gt 0 ]; then
     exit 1
 fi
 
-# Freshness heartbeat for monitoring: a world-readable success stamp OUTSIDE the
-# 700 root-only snapshot dir (it leaks only a timestamp), so the unprivileged
-# health-check can tell whether this DR snapshot is still running.
+
+
+
 if ! write_success_stamp; then
     crit "success heartbeat could not be published"
     write_manifest incomplete || log "ERROR" "Cannot mark capture receipt incomplete."
     exit 1
 fi
 
-# Summary
+
 log "INFO" ""
 if [ "${#WARNINGS[@]}" -eq 0 ]; then
     log "INFO" "${GREEN}=== Config snapshot complete — ${#CAPTURED[@]} item(s), 0 warnings ===${NC}"
@@ -340,6 +340,6 @@ else
     log "INFO" "${YELLOW}=== Config snapshot complete with ${#WARNINGS[@]} warning(s) ===${NC}"
     for w in "${WARNINGS[@]}"; do log "WARN" "  • $w"; done
     log "INFO" "Snapshot: $SNAP_DIR (root-only 700; credential 600)"
-    # Only genuinely optional omissions may produce a successful warning receipt.
+
     exit 0
 fi

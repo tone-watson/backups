@@ -84,7 +84,7 @@ def beneath(path, root):
 
 def real_directory(path, *, create=False):
     path = absolute(path)
-    # Resolve every component before writing through privileged paths.
+
     if path.resolve() != path:
         raise RecoveryError(f"Symlinked directory is not allowed: {path}")
     if create:
@@ -129,8 +129,8 @@ def validate_manifest(report, roots, exclusions):
         if not boundary.get("incomplete_scope"):
             continue
         path = absolute(boundary["path"])
-        # Declared depth bounds can describe fully retained payloads. An entry
-        # budget exhaustion leaves unrelated roots unvisited and must fail.
+
+
         covered = any(beneath(path, p) for p in roots)
         excluded = any(beneath(path, Path(p)) for p in exclusions)
         if boundary.get("reason") != "depth_limit" or not covered or excluded:
@@ -201,7 +201,7 @@ def command(argv, *, timeout=60):
     result = subprocess.run([str(a) for a in argv], env=clean_env(),
                             capture_output=True, text=True, timeout=timeout)
     if result.returncode:
-        # Host tools may print secrets in stderr. Preserve only command identity/status.
+
         raise RecoveryError(f"{Path(str(argv[0])).name} failed (exit {result.returncode})")
     return result.stdout
 
@@ -393,7 +393,7 @@ class Restic:
 
         argv = [self.binary, "--repo", str(self.repo), "--password-file", str(self.password),
                 "--no-cache", "--json", *map(str, args)]
-        # Do not inherit RESTIC_PASSWORD_COMMAND, repository overrides or cloud credentials.
+
         proc = subprocess.Popen(argv, env=clean_env(),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         output, pending, stderr_pending = bytearray(), bytearray(), bytearray()
@@ -412,8 +412,8 @@ class Restic:
                             selector.unregister(key.fileobj)
                             continue
                         if key.data == "stderr":
-                            # Native paths/messages may contain secrets. Never print
-                            # them, and discard non-JSON/oversized lines while draining.
+
+
                             stderr_pending.extend(chunk)
                             while b"\n" in stderr_pending:
                                 line, _, rest = stderr_pending.partition(b"\n")
@@ -528,7 +528,7 @@ def exclusions_for(policy, drive, password, state, captures):
                    str(state / "diagnostics")])
     result.update(captures.get("exclusions", []))
     if policy["mode"] == "server":
-        # Explicitly list all mount boundaries, including same-device bind mounts.
+
         mounts = json.loads(command(["findmnt", "--json", "--list", "--output", "TARGET,FSTYPE"]))
         allowed = set(policy["source_roots"])
         for row in mounts.get("filesystems", []):
@@ -537,10 +537,10 @@ def exclusions_for(policy, drive, password, state, captures):
                 virtual = any(beneath(Path(target), Path(p)) for p in ("/dev", "/proc", "/sys", "/run"))
                 if not virtual and Path(target) != drive and row.get("fstype") != "squashfs":
                     raise RecoveryError(f"Unclassified mount {target}; add it as a source or explicitly review the mount policy")
-                # An explicitly discovered dependency on a read-only package
-                # mount is captured by its own source path. Excluding its parent
-                # mount would also exclude that required file. Root traversal
-                # still stops at this boundary through --one-file-system.
+
+
+
+
                 explicit_descendant = any(beneath(Path(p), Path(target)) for p in allowed)
                 if row.get("fstype") != "squashfs" or not explicit_descendant:
                     result.add(target)
@@ -633,7 +633,7 @@ def backup(args, policy):
             write_json(stage / "manifest.json", report)
             write_json(stage / "policy.json", policy)
             print(json.dumps({"phase": "capture", "run_id": run_id}), flush=True)
-            # Validate mount/exclusion boundaries before any optional service stop.
+
             effective_policy = dict(policy, source_roots=list(map(str, roots)))
             preliminary_exclusions = exclusions_for(effective_policy, drive, engine.password, state, {})
             for root in roots:
@@ -666,7 +666,7 @@ def backup(args, policy):
             snapshot_id = summaries[0]["snapshot_id"]
             engine.run(["check"])
             kit(drive / "rescue-kit", engine.binary)
-            # Tag only after backup exit zero and repository consistency check.
+
             engine.run(["tag", "--remove", "pending", "--add", COMPLETE, snapshot_id])
             complete = engine.json(["snapshots", "--tag", COMPLETE + ",run-" + run_id])
             if len(complete) != 1:
@@ -706,7 +706,7 @@ def restore(args):
         snapshot = select_snapshot(engine, args.snapshot)
         engine.run(["check"])
         engine.run(["restore", snapshot["id"], "--target", str(target), "--verify"])
-        # Do not apply database imports, overwrite the live OS, or follow restored symlinks.
+
         result = {"schema": "farm.recovery-restore/1", "status": "extracted-and-verified",
                   "snapshot_id": snapshot["id"], "target": str(target), "finished_at": now(),
                   "next": "Follow rescue-kit/RESTORE.md to apply consistent captures and rebuild the fresh host."}
@@ -761,8 +761,8 @@ def main(argv=None):
                 result["finished_at"] = now()
                 write_json(target / "FARM-APPLY-RECEIPT.json", result)
         else:
-            # Fixture operations remain isolated; every privileged server
-            # repository operation shares the operator mount/eject gate.
+
+
             server = load_policy(args.policy)["mode"] == "server"
             gate = lifecycle_lock() if server and os.geteuid() == 0 else contextlib.nullcontext()
             with gate:

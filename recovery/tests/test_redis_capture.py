@@ -77,7 +77,7 @@ class NativeRedisCaptureTests(unittest.TestCase):
 
     def start(self, root):
         root.mkdir(exist_ok=True)
-        # No production port or socket is used. Verify PID/config before writes.
+
         with socket.socket() as reservation:
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]

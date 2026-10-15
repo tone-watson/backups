@@ -19,17 +19,17 @@
 set -euo pipefail
 
 SRC="/srv/farm/production"
-REMOTE_NAME="dropbox"                       # must match the rclone remote you created
-DEST_ROOT="${REMOTE_NAME}:farm"             # the Dropbox folder to back up into
+REMOTE_NAME="dropbox"
+DEST_ROOT="${REMOTE_NAME}:farm"
 DEST="${DEST_ROOT}/production"
 ARCHIVE="${DEST_ROOT}/_archive/$(date +%Y-%m-%d)"
 LOG="/var/log/farm-dropbox-sync.log"
-STAMP="/srv/farm/logs/farm-dropbox-sync.stamp"   # success heartbeat, read by dbops health-check.sh
+STAMP="/srv/farm/logs/farm-dropbox-sync.stamp"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXCLUDE="${SCRIPT_DIR}/exclude.txt"
 source "${SCRIPT_DIR}/dropbox-common.sh"
 
-# Log to file and stdout (systemd journal)
+
 exec > >(tee -a "$LOG") 2>&1
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox sync starting ==="
@@ -45,11 +45,11 @@ if ! rclone listremotes 2>/dev/null | grep -q "^${REMOTE_NAME}:"; then
     exit 1
 fi
 
-# --backup-dir: preserve replaced/deleted files. --track-renames: cheap moves.
+
 run_dropbox_upload 6h "$SRC" "$DEST" \
     --exclude-from "$EXCLUDE" \
     --backup-dir "$ARCHIVE" \
     --track-renames
 
-date +%s > "$STAMP" 2>/dev/null || true   # record off-box success time for freshness monitoring
+date +%s > "$STAMP" 2>/dev/null || true
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox sync complete ==="

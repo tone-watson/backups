@@ -23,16 +23,16 @@
 set -euo pipefail
 
 SRC="/var/backups/data/databases"
-REMOTE_NAME="dropbox"                       # must match the rclone remote you created
-DEST_ROOT="${REMOTE_NAME}:farm"             # the Dropbox folder to back up into
+REMOTE_NAME="dropbox"
+DEST_ROOT="${REMOTE_NAME}:farm"
 DEST="${DEST_ROOT}/databases"
 ARCHIVE="${DEST_ROOT}/_archive/databases/$(date +%Y-%m-%d)"
 LOG="/srv/farm/logs/farm-dropbox-db-sync.log"
-STAMP="/srv/farm/logs/farm-dropbox-db-sync.stamp"   # success heartbeat, read by dbops health-check.sh
+STAMP="/srv/farm/logs/farm-dropbox-db-sync.stamp"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/dropbox-common.sh"
 
-# Log to file and stdout (systemd journal)
+
 exec > >(tee -a "$LOG") 2>&1
 
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox DB sync starting ==="
@@ -53,19 +53,19 @@ if [ ! -d "$SRC" ]; then
     exit 1
 fi
 
-# Fail closed on an EMPTY source. `rclone sync` makes DEST identical to SRC, so a
-# transiently-empty source (a botched dbops run, over-aggressive retention, a bug)
-# would otherwise wipe the live Dropbox backup folder. (--backup-dir would make it
-# recoverable, but we refuse rather than rely on that.)
+
+
+
+
 if [ -z "$(find "$SRC" -type f -print -quit 2>/dev/null)" ]; then
     echo "ERROR: source $SRC contains no files — refusing to sync (would empty the Dropbox backup)"
     exit 1
 fi
 
-# Redis snapshot (DR-3): the Redis task queue + API-key store are RDB-only and
-# are in NO other backup. Dump a fresh RDB into the snapshot set so it ships
-# off-box alongside the DBs. Best-effort: if redis-cli is missing or the SYNC
-# fails, log and continue — a Redis hiccup must NOT abort the database backup.
+
+
+
+
 REDIS_DUMP="${SRC}/redis-dump.rdb"
 if ! command -v redis-cli >/dev/null 2>&1; then
     echo "WARN: redis-cli not found — skipping Redis snapshot (DB backup continues)"
@@ -76,13 +76,13 @@ else
 
 fi
 
-# --backup-dir: preserve replaced/deleted files. Database snapshots can total
-# multiple GiB; four hours allows the capped upload to finish and retry.
+
+
 run_dropbox_upload 4h "$SRC" "$DEST" \
     --exclude '/.incomplete-*/**' \
     --exclude '/.backup-archive-*' \
     --exclude '/.backup.lock' \
     --backup-dir "$ARCHIVE"
 
-date +%s > "$STAMP" 2>/dev/null || true   # record off-box success time for freshness monitoring
+date +%s > "$STAMP" 2>/dev/null || true
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox DB sync complete ==="

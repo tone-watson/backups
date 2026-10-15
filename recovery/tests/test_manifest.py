@@ -195,7 +195,7 @@ class ManifestTests(unittest.TestCase):
         store = str(self.root / ".git" / "modules" / "nested")
         self.assertNotIn(store, {item["path"] for item in result["topology"]["roots"]})
         stores = [item for item in result["git"]["registered_worktrees"] if item["worktree"] == store]
-        # Git versions differ in whether they name this store or its checkout.
+
         self.assertTrue(all(item["entry_kind"] == "git_metadata_directory" for item in stores))
 
     def test_worktree_common_store_and_object_alternates_outside_source(self):

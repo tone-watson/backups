@@ -97,8 +97,8 @@ def _source(path, stage, *, directory=False):
 
 
 def _file_xattrs(path):
-    # These values can contain private application metadata; only the private
-    # staged receipt is allowed to retain them. ACLs are represented as xattrs.
+
+
     try:
         return {name: base64.b64encode(os.getxattr(path, name, follow_symlinks=False)).decode("ascii")
                 for name in os.listxattr(path, follow_symlinks=False)}
@@ -315,7 +315,7 @@ def _capture_redis(config, stage, timeout):
 
 
 def _archive_helper():
-    # Load the colocated helper directly, independent of CLI/test sys.path.
+
     spec = importlib.util.spec_from_file_location(
         "farm_capture_archive_validation", Path(__file__).with_name("apply_captures.py"))
     if spec is None or spec.loader is None:
@@ -351,8 +351,8 @@ def _capture_offline(store, stage, timeout):
             _inactive(unit, timeout)
         if _runtime_entries(store, source, helper) != runtime:
             raise CaptureError("offline runtime entries changed during capture")
-        # A successful tar command alone does not establish that our guarded
-        # alternate-root restoration can safely apply the resulting archive.
+
+
         try:
             helper.validate_tar(temporary, source, runtime_entries=runtime)
         except helper.ApplyError:
@@ -423,7 +423,7 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
             _verify_redis_persistence(redis_config, redis_source, timeout)
         for unit, state in initial.items():
             if state.get("ActiveState") == "active":
-                # Even a failed stop may have changed the original running state.
+
                 stopped.append(unit)
                 action = {"unit": unit, "action": "stop", "status": "intended"}
                 receipt["service_actions"].append(action)
@@ -444,7 +444,7 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
                 receipt["captures"].append(capture)
                 receipt["exclusions"].extend(exclusions)
             except Exception as exc:
-                # Exceptions may contain database values or native stderr. Keep only controlled messages.
+
                 receipt["errors"].append({"capture": name, "error": str(exc) if isinstance(exc, CaptureError) else type(exc).__name__})
     except Exception as exc:
         receipt["errors"].append({"capture": "preflight", "error": str(exc) if isinstance(exc, CaptureError) else type(exc).__name__})
@@ -452,8 +452,8 @@ def capture_state(policy, stage: Path, *, quiesce=False) -> dict:
         receipt["errors"].append({"capture": "interruption", "error": "capture interrupted"})
         interrupted = exc
     finally:
-        # Socket-activated daemons need their listening descriptors available
-        # before startup, even when their unit does not declare that dependency.
+
+
         restore_units = [unit for suffix in (".socket", ".service")
                          for unit in reversed(stopped) if unit.endswith(suffix)]
         for unit in restore_units:

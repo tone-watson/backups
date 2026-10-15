@@ -47,7 +47,7 @@ class SnapshotTests(unittest.TestCase):
         script = "\n".join(lines) + "\n"
         guard = 'if [ "${EUID:-$(id -u)}" -ne 0 ]; then'
         self.assertIn(guard, script)
-        # Only the temporary copy bypasses root; production has no test-mode switch.
+
         script = script.replace(guard, "if false; then", 1)
         self.script = self.root / "snapshot.sh"
         self.script.write_text(script)

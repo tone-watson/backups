@@ -284,7 +284,7 @@ class RetryPreparationTests(unittest.TestCase):
 
     @unittest.skipUnless(RESTIC, "Set FARM_TEST_RESTIC to exercise actual snapshot timestamps")
     def test_actual_restic_snapshot_metadata_passes_preparation(self):
-        # Only disposable fixture sources/repository; no production paths.
+
         source = Path(self.policy["source_roots"][0])
         source.mkdir(mode=0o700)
         (source / "value.txt").write_text("disposable fixture data")

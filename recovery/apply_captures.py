@@ -252,7 +252,7 @@ def validate_tar(artifact, source, runtime_entries=None):
     omitted = [PurePosixPath(path) for path in runtime_exclude_paths(source, runtime_entries)] if runtime_entries is not None else []
     members = {}
     try:
-        # Capture writes uncompressed GNU/PAX tar archives; no auto-detection.
+
         with tarfile.open(artifact, "r:") as archive:
             for member in archive:
                 path = _member_path(member.name)
@@ -280,8 +280,8 @@ def validate_tar(artifact, source, runtime_entries=None):
                 raise ApplyError("Tar member has a file or link ancestor")
         if member.issym() or member.islnk():
             if member.islnk():
-                # GNU tar records hardlink names relative to the archive root;
-                # unlike symlinks, parent traversal is never needed here.
+
+
                 _member_path(member.linkname)
             linked = _link_target(member)
             if not linked.parts or linked.parts[0] != source.name:
@@ -368,8 +368,8 @@ def _apply_file(job):
             os.fsync(stream.fileno())
         os.chown(temporary, entry["uid"], entry["gid"], follow_symlinks=False)
         os.chmod(temporary, entry["mode"], follow_symlinks=False)
-        # New files can inherit a parent's default ACL; retain only attributes
-        # recorded for the captured source, not incidental restore-tree ACLs.
+
+
         for key in os.listxattr(temporary, follow_symlinks=False):
             if key not in job["xattrs"]:
                 os.removexattr(temporary, key, follow_symlinks=False)
@@ -377,7 +377,7 @@ def _apply_file(job):
             os.setxattr(temporary, key, value, follow_symlinks=False)
         with temporary.open("rb") as stream:
             os.fsync(stream.fileno())
-        # A hardlink publishes without replacing any destination created since preflight.
+
         os.link(temporary, destination, follow_symlinks=False)
     finally:
         temporary.unlink(missing_ok=True)
@@ -398,8 +398,8 @@ def apply_captures(target: Path, capture_dir: Path) -> dict:
             result["manual_imports"].append({"kind": "pg_dumpall", "artifact": str(job["artifact"]),
                                               "status": "import-required"})
             continue
-        # Recheck path boundaries immediately before writing; callers still must
-        # exclude concurrent access to the offline restore tree.
+
+
         _destination(target, job["source"])
         try:
             if entry["kind"] == "tar":
@@ -417,7 +417,7 @@ def apply_captures(target: Path, capture_dir: Path) -> dict:
             raise ApplyError("Capture application failed; retry from a fresh alternate-root extraction") from exc
         result["applied"].append({"kind": entry["kind"], "source": entry["source"],
                                   "target": str(job["destination"])})
-    # All payload writes finish before an approved absolute runtime link exists.
+
     for job in jobs:
         receipt = job["entry"].get("runtime_entries")
         if receipt is None:
