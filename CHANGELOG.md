@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.7.2 - 2026-10-15
+### CHANGED:
+- Remove explanatory code comments
+
+
 ## v1.7.1 - 2026-10-13
 ### CHANGED:
 - Accept nanosecond Restic timestamps in retry preparation
