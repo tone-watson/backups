@@ -98,8 +98,7 @@
   "model_reference_paths": [
     "/usr/share/ollama/.ollama/models/manifests",
     "/home/gradywoodruff/models/clef-flash/.cache/huggingface/download",
-    "/home/gradywoodruff/models/ace-step-1.5/.cache/huggingface/download",
-    "/srv/farm/code/llama3/download.sh"
+    "/home/gradywoodruff/models/ace-step-1.5/.cache/huggingface/download"
   ],
   "sqlite_roots": [
     "/data/databases",
