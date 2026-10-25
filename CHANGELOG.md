@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.9.0 - 2026-10-25
+### CHANGED:
+- Keep database offsite sync after Chicago-time backups
+
+
 ## v1.8.0 - 2026-10-25
 ### CHANGED:
 - Remove retired Llama model recovery reference
