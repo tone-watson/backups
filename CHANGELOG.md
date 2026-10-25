@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.8.0 - 2026-10-25
+### CHANGED:
+- Remove retired Llama model recovery reference
+
+
 ## v1.7.2 - 2026-10-15
 ### CHANGED:
 - Remove explanatory code comments
