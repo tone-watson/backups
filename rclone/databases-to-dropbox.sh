@@ -5,7 +5,8 @@
 # WHAT it syncs: /var/backups/data/databases — the CONSISTENT snapshots dbops
 # produces daily (sqlite3 .backup of every *.db). We sync these, NOT the live
 # /data/databases, so we never copy a half-written WAL/locked state. dbops runs at
-# 03:00; this timer runs at 04:00 to push the freshest snapshot off the box.
+# 03:00 America/Chicago; this timer runs at 04:00 in the same timezone to push
+# the freshest snapshot off the box.
 #
 # WHY: /var/backups and /data/databases live on the SAME root LVM volume, so a
 # disk/LVM/rm/ransomware event would destroy the DBs AND their only backups at
