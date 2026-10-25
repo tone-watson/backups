@@ -36,6 +36,9 @@ The script writes files and changes nothing it captures, but it needs root to re
 tunnel credential. Install the unit + timer (mirrors the other `sys/backups` timers):
 
 ```bash
+sudo mkdir -p /usr/local/lib/farm-config-snapshot
+sudo install -o root -g root -m 755 /srv/farm/sys/backups/config/snapshot.sh      /usr/local/lib/farm-config-snapshot/snapshot.sh
+sudo install -o root -g root -m 644 /srv/farm/sys/backups/config/capture-api-uv.py /usr/local/lib/farm-config-snapshot/capture-api-uv.py
 sudo cp /srv/farm/sys/backups/systemd/farm-config-snapshot.service /etc/systemd/system/
 sudo cp /srv/farm/sys/backups/systemd/farm-config-snapshot.timer /etc/systemd/system/
 sudo systemctl daemon-reload

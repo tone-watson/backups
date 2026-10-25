@@ -5,7 +5,13 @@
 # crontab, conda env exports, apt list) into /var/backups/config-snapshot.
 #
 # Runs as ROOT — it must read root-only /etc/cloudflared (the tunnel credential).
-# Install: sudo cp this to /etc/systemd/system/ then enable the .timer (not this).
+# Because it runs as root it executes a root-owned INSTALLED copy of the script, never
+# the user-owned checkout (since 2026-10-25). Install the copies first:
+#   sudo mkdir -p /usr/local/lib/farm-config-snapshot
+#   sudo install -o root -g root -m 755 /srv/farm/sys/backups/config/snapshot.sh      /usr/local/lib/farm-config-snapshot/snapshot.sh
+#   sudo install -o root -g root -m 644 /srv/farm/sys/backups/config/capture-api-uv.py /usr/local/lib/farm-config-snapshot/capture-api-uv.py
+# then: sudo cp this to /etc/systemd/system/ and enable the .timer (not this).
+# Re-run the two install lines whenever either script changes in the checkout.
 [Unit]
 Description=Config-as-code snapshot of the box identity (/etc + conda + apt)
 After=network.target
@@ -15,7 +21,7 @@ Type=oneshot
 # Root is REQUIRED: /etc/cloudflared is 0700 root-only. Do not drop privileges.
 User=root
 Group=root
-ExecStart=/srv/farm/sys/backups/config/snapshot.sh
+ExecStart=/usr/local/lib/farm-config-snapshot/snapshot.sh
 Nice=10
 IOSchedulingClass=idle
 TimeoutStartSec=10m
