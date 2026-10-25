@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.9.1 - 2026-10-25
+### CHANGED:
+- Run the config snapshot from a root-owned installed copy
+
+
 ## v1.9.0 - 2026-10-25
 ### CHANGED:
 - Keep database offsite sync after Chicago-time backups
