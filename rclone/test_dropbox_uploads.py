@@ -140,7 +140,7 @@ Path(sys.argv[2]).write_text('fake redis snapshot')
         self.assertIn("--exclude-from", events[0]["args"])
         db_args = events[2]["args"]
         exclusions = [db_args[i + 1] for i, value in enumerate(db_args) if value == "--exclude"]
-        self.assertEqual(exclusions, ['/.incomplete-*/**', '/.backup-archive-*', '/.backup.lock'])
+        self.assertEqual(exclusions, ['/.incomplete-*/**', '/.backup-archive-*', '/.backup.lock', '/backup_*/**'])
         self.assertTrue((self.root / "production.stamp").exists())
         self.assertTrue((self.root / "database.stamp").exists())
 

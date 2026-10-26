@@ -76,6 +76,10 @@ The lock covers manual script runs as well as both systemd services. Waiting job
 are not silently skipped. Systemd does not create another instance of the same
 service for timer ticks that occur while that service is already running.
 
+The database sync ships only the compressed `backup_<stamp>.tar.gz` archives that
+dbops writes at capture time; the uncompressed `backup_<stamp>/` directories are
+excluded (they are kept locally for fast restores).
+
 The scripts allow six hours of production upload time and four hours for database
 uploads, **after acquiring the lock**. The Redis snapshot has a separate five-minute
 limit. Failed or timed-out uploads do not update the success heartbeat. A 4.3 GiB

@@ -3,7 +3,11 @@
 # One-way, versioned, OFF-BOX backup of the database snapshots to Dropbox via rclone.
 #
 # WHAT it syncs: /var/backups/data/databases — the CONSISTENT snapshots dbops
-# produces daily (sqlite3 .backup of every *.db). We sync these, NOT the live
+# produces daily (sqlite3 .backup of every *.db), as the compressed
+# backup_<stamp>.tar.gz dbops writes at capture time (about a tenth of the raw
+# size). The uncompressed backup_<stamp>/ directories stay local for fast
+# restores and are excluded here: shipping them cost ~2 GB per snapshot and left
+# every superseded copy in the Dropbox _archive. We sync snapshots, NOT the live
 # /data/databases, so we never copy a half-written WAL/locked state. dbops runs at
 # 03:00 America/Chicago; this timer runs at 04:00 in the same timezone to push
 # the freshest snapshot off the box.
@@ -83,6 +87,7 @@ run_dropbox_upload 4h "$SRC" "$DEST" \
     --exclude '/.incomplete-*/**' \
     --exclude '/.backup-archive-*' \
     --exclude '/.backup.lock' \
+    --exclude '/backup_*/**' \
     --backup-dir "$ARCHIVE"
 
 date +%s > "$STAMP" 2>/dev/null || true
