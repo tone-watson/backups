@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.10.0 - 2026-10-26
+### CHANGED:
+- Ship only the compressed database snapshots to Dropbox
+
+
 ## v1.9.1 - 2026-10-25
 ### CHANGED:
 - Run the config snapshot from a root-owned installed copy
