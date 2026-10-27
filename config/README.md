@@ -148,12 +148,15 @@ the existing `graphiti-root` and `graphiti-mcp` recipes must also remain committ
 A missing committed profile lock fails capture; a dirty working tree is not a
 substitute for the recorded API revision.
 
-The accepted bundle currently lives at
-`/srv/farm/.uv/migrations/2026-10-01-api-audit/artifact-set.2obcd4ez`.
-Its `receipt.json`, `requirements.lock` and all 147 reviewed wheels are copied into
+The accepted bundle is the one the committed `deploy/runtime/artifacts.json`
+names; since the API's Python 3.12 cutover (2026-10-25) that is
+`/srv/farm/.uv/migrations/2026-10-25-api-python312/artifact-set.94ac0b1fccea`.
+Its `receipt.json`, `requirements.lock` and all 84 reviewed wheels are copied into
 `uv/api/`, alongside the committed `artifacts.json`. The wheel bytes need about
-2.51 GiB once; subsequent runs hash-check source and backup, retaining unchanged
-independent destination files. Corrupt copies are replaced. No hardlinks to the
+168 MiB once; subsequent runs hash-check source and backup, retaining unchanged
+independent destination files and removing wheels the manifest no longer names
+(the retired 147-wheel Python 3.9 bundle left the snapshot that way). Corrupt
+copies are replaced. No hardlinks to the
 source are created, and the retained uv subtree is excluded from the shell's
 recursive permission changes. The helper creates directories/files with 700/600
 permissions and replaces a linked destination before changing file permissions.
