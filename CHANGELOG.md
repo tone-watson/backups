@@ -1,6 +1,12 @@
 # Changelog
 
 
+## v1.11.0 - 2026-10-27
+### CHANGED:
+- Update fd path in farm.json
+- Skip the console dashboard's environments in the recovery scan
+
+
 ## v1.10.0 - 2026-10-26
 ### CHANGED:
 - Ship only the compressed database snapshots to Dropbox
