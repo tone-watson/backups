@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.11.1 - 2026-10-27
+### CHANGED:
+- Update alias path in farm.json
+
+
 ## v1.11.0 - 2026-10-27
 ### CHANGED:
 - Update fd path in farm.json
