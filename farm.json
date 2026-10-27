@@ -1,5 +1,6 @@
 {
   "name": "farm-backups",
+  "fd": "backups",
   "description": "Offsite & content backups (Dropbox sync of production); complements sys/dbops (databases).",
   "version": "1.10.0",
   "scripts": {
