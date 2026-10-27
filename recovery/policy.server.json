@@ -71,6 +71,8 @@
     "/srv/farm/miniconda3/envs",
     "/srv/farm/miniconda3/lib",
     "/srv/farm/miniconda3/pkgs",
+    "/srv/farm/ops/dashboard/.venv",
+    "/srv/farm/ops/dashboard/.venv-dev",
     "/srv/farm/sys/api/.venv",
     "/srv/farm/sys/api/node_modules",
     "/srv/farm/sys/api/tools/dev/.venv",
