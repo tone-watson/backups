@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.12.0 - 2026-10-27
+### CHANGED:
+- Point the API capture notes at the 3.12 bundle
+
+
 ## v1.11.1 - 2026-10-27
 ### CHANGED:
 - Update alias path in farm.json
