@@ -19,9 +19,11 @@
 set -euo pipefail
 
 SRC="/srv/farm/production"
+THUMBNAILS_SRC="/srv/farm/assets/images/library"
 REMOTE_NAME="dropbox"
 DEST_ROOT="${REMOTE_NAME}:farm"
 DEST="${DEST_ROOT}/production"
+THUMBNAILS_DEST="${DEST_ROOT}/library-thumbnails"
 ARCHIVE="${DEST_ROOT}/_archive/$(date +%Y-%m-%d)"
 LOG="/var/log/farm-dropbox-sync.log"
 STAMP="/srv/farm/logs/farm-dropbox-sync.stamp"
@@ -50,6 +52,13 @@ run_dropbox_upload 6h "$SRC" "$DEST" \
     --exclude-from "$EXCLUDE" \
     --backup-dir "$ARCHIVE" \
     --track-renames
+
+# Library thumbnails are published by Manager on the Assets CDN, outside the production tree,
+# so nothing else backs them up. The folder is created by the operator; skip until it exists.
+if [ -d "$THUMBNAILS_SRC" ]; then
+    run_dropbox_upload 30m "$THUMBNAILS_SRC" "$THUMBNAILS_DEST" \
+        --backup-dir "${ARCHIVE}/_library-thumbnails"
+fi
 
 date +%s > "$STAMP" 2>/dev/null || true
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox sync complete ==="

@@ -31,6 +31,7 @@ class DropboxUploadTests(unittest.TestCase):
             script = (HERE / name).read_text()
             for old, new in {
                 "/srv/farm/logs/farm-dropbox-upload.lock": str(self.lock),
+                "/srv/farm/assets/images/library": str(self.root / "thumbnails"),
                 "/srv/farm/production": str(self.source),
                 "/var/backups/data/databases": str(self.source),
                 "/var/log/farm-dropbox-sync.log": str(self.root / "production.log"),
@@ -143,6 +144,24 @@ Path(sys.argv[2]).write_text('fake redis snapshot')
         self.assertEqual(exclusions, ['/.incomplete-*/**', '/.backup-archive-*', '/.backup.lock', '/backup_*/**'])
         self.assertTrue((self.root / "production.stamp").exists())
         self.assertTrue((self.root / "database.stamp").exists())
+
+    def test_library_thumbnails_get_their_own_upload_once_the_folder_exists(self):
+        self.finish(self.script("production-to-dropbox.sh", "production"))
+        self.assertEqual(len([e for e in self.recorded() if e["event"] == "start"]), 1,
+                         "no thumbnail folder yet: only the production tree is uploaded")
+        self.events.unlink()
+        (self.root / "thumbnails").mkdir()
+        (self.root / "thumbnails" / "ch-billy-0123456789ab-512.webp").write_text("fixture")
+        self.finish(self.script("production-to-dropbox.sh", "production"))
+        starts = [e["args"] for e in self.recorded() if e["event"] == "start"]
+        self.assertEqual(len(starts), 2)
+        self.assertEqual(starts[1][1:3],
+                         [str(self.root / "thumbnails"), "dropbox:farm/library-thumbnails"])
+        archive = starts[1][starts[1].index("--backup-dir") + 1]
+        self.assertTrue(archive.startswith("dropbox:farm/_archive/"))
+        self.assertTrue(archive.endswith("/_library-thumbnails"))
+        self.assertEqual(starts[1][starts[1].index("--bwlimit") + 1], "1M")
+        self.assertNotIn("--exclude-from", starts[1])
 
     def test_failed_upload_does_not_advance_either_success_stamp(self):
         for script, name in (("production-to-dropbox.sh", "production"),

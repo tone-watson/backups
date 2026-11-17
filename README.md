@@ -7,6 +7,7 @@ This component handles the **big, irreplaceable creative work** and **offsite** 
 |---|---|---|
 | Databases (`/data/databases`) | local `/var/backups`, daily | **`sys/dbops`** |
 | Creative work (`/srv/farm/production`, 138 GB) → Dropbox | offsite | **this repo** (`rclone/`) |
+| Library thumbnails (`/srv/farm/assets/images/library`) → Dropbox | offsite, same job | **this repo** (`rclone/`) |
 | Config-as-code snapshot (box identity) | local `/var/backups/config-snapshot`, daily | **`config/`** (`config/snapshot.sh`) |
 | External-drive disaster recovery | prepared; real-drive acceptance pending | [`recovery/README.md`](recovery/README.md), [`recovery/RESTORE.md`](recovery/RESTORE.md) |
 
@@ -23,6 +24,12 @@ for current status, capacity planning and the remaining operator checks.
 **The guarantee:** the sync script **only reads** `/srv/farm/production` and pushes to Dropbox. It **never writes to or deletes** anything in that folder, so it **cannot conflict with Syncthing**, which remains the sole owner of the local directory. (Syncthing keeps the server and your Mac in sync; this just copies the result up to the cloud.)
 
 **Versioned, not just mirrored:** replaced/deleted files are moved into `dropbox:farm-backup/_archive/<date>/` (rclone `--backup-dir`) rather than deleted — so a deletion that propagates from the Mac through Syncthing doesn't wipe the Dropbox copy. Dropbox's own file-version history is a second safety net.
+
+**Library thumbnails ride along.** Manager publishes library thumbnails on the Assets CDN in
+`/srv/farm/assets/images/library`, outside the production tree, and nothing else backs that folder
+up. Once it exists, the same job uploads it to `dropbox:farm/library-thumbnails` after the
+production tree, with replaced files archived under `_archive/<date>/_library-thumbnails`. A
+failure there fails the run like any other upload.
 
 ### One-time activation
 
