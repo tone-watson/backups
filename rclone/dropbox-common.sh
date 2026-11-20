@@ -45,7 +45,8 @@ classify_rclone_errors() {
             if (line ~ /attempt [0-9]+\/[0-9]+ (failed|succeeded)|not deleting (files|directories) as there were io errors/) next
             # Dropbox error pages are HTML; the status code comes a few lines later.
             if (line ~ /<!doctype html>$/) { html = 1; next }
-            if (line ~ /source file is being updated|corrupted on transfer|looking for beginning of value|too_many_requests|too_many_write_operations|internal_error|service unavailable|bad gateway|gateway timeout|status code 5[0-9][0-9]|connection reset by peer|i\/o timeout|tls handshake timeout|unexpected eof|context deadline exceeded|temporary failure in name resolution|network is unreachable/) temporary++
+            # "unexpected error occurred" is the plain-text body of a Dropbox 5xx reply.
+            if (line ~ /source file is being updated|corrupted on transfer|looking for beginning of value|unexpected error occurred|too_many_requests|too_many_write_operations|internal_error|service unavailable|bad gateway|gateway timeout|status code 5[0-9][0-9]|connection reset by peer|i\/o timeout|tls handshake timeout|unexpected eof|context deadline exceeded|temporary failure in name resolution|network is unreachable/) temporary++
             else other++
         }
         END { settle(); print temporary + 0, other + 0 }'

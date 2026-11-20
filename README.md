@@ -33,12 +33,13 @@ failure there fails the run like any other upload.
 
 ### One-time activation
 
-> ⚠️ Do **not** use the `apt` rclone — Ubuntu ships 1.53 (2020), which gets a Dropbox token that expires in hours. Use the official installer (current version) on **both** the server and your Mac.
+> ⚠️ Do **not** use the `apt` rclone — Ubuntu ships 1.53 (2020), which gets a Dropbox token that expires in hours and does not retry Dropbox server errors well. Use the official build (current version) on **both** the server and your Mac. On the server install the official **`.deb`**, not `install.sh`: the script only overwrites `/usr/bin/rclone`, so dpkg still believes 1.53 is installed and the next Ubuntu security update silently puts 1.53 back (the server was found on 1.53 again on 2026-11-20, after an apt update of the package on 2026-07-31). The `.deb` makes dpkg track the real version.
 
 ```bash
 # --- ON THE SERVER ---
-# 1) Install current rclone (replaces any apt version)
-curl https://rclone.org/install.sh | sudo bash
+# 1) Install current rclone from the official .deb (replaces the apt version and stays replaced)
+curl -fsSLO https://downloads.rclone.org/rclone-current-linux-amd64.deb
+sudo dpkg -i rclone-current-linux-amd64.deb
 rclone version            # should be v1.6x or newer, NOT 1.53
 
 # --- ON YOUR MAC (it has a browser; the server doesn't) ---

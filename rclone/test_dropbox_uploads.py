@@ -12,10 +12,11 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 
-# Shape of the 2026-11-20 failure: a file changing mid-upload, then Dropbox 500 pages.
+# Shape of the 2026-11-20 failure: a file changing mid-upload, then Dropbox 5xx replies (plain text and HTML pages).
 TEMPORARY_LOG = """\
 2026/11/20 18:41:04 ERROR : rig.blend: corrupted on transfer: DropboxHash hash differ "a" vs "b"
 2026/11/20 18:41:05 ERROR : rig.blend1: Failed to copy: upload failed: Post "https://content.dropboxapi.com/2/files/upload_session/start": can't copy - source file is being updated (size changed from 1 to 2)
+2026/11/20 20:06:39 ERROR : data/storyboards/.objects/03: error reading destination directory: unexpected error occurred
 2026/11/20 19:22:59 ERROR : Dropbox root 'farm/production': not deleting files as there were IO errors
 2026/11/20 19:22:59 ERROR : Attempt 1/3 failed with 2 errors and: upload failed: can't copy - source file is being updated
 2026/11/20 19:48:42 ERROR : data/storyboards/.objects/d8: error reading destination directory: <!DOCTYPE html>
@@ -194,7 +195,7 @@ Path(sys.argv[2]).write_text('fake redis snapshot')
             stamp = self.root / f"{name}.stamp"
             stamp.write_text("previous success")
             output = self.finish(self.script(script, name, exit_code="1", output=TEMPORARY_LOG))
-            self.assertIn("WARNING: Dropbox upload skipped 3 item(s)", output)
+            self.assertIn("WARNING: Dropbox upload skipped 4 item(s)", output)
             self.assertIn("heartbeat not advanced", output)
             self.assertNotIn("sync complete", output)
             self.assertEqual(stamp.read_text(), "previous success")
