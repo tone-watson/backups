@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.13.1 - 2026-11-20
+### CHANGED:
+- Skip temporary Dropbox upload errors instead of failing the sync
+
+
 ## v1.13.0 - 2026-11-20
 ### CHANGED:
 - Back up Manager's library thumbnails with the production tree
