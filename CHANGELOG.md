@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.13.0 - 2026-11-20
+### CHANGED:
+- Back up Manager's library thumbnails with the production tree
+
+
 ## v1.12.0 - 2026-10-27
 ### CHANGED:
 - Point the API capture notes at the 3.12 bundle
