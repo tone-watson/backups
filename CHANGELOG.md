@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.13.2 - 2026-11-20
+### CHANGED:
+- Treat Dropbox's plain-text 5xx reply as temporary; install rclone from the .deb
+
+
 ## v1.13.1 - 2026-11-20
 ### CHANGED:
 - Skip temporary Dropbox upload errors instead of failing the sync
