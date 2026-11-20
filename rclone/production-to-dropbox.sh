@@ -60,5 +60,10 @@ if [ -d "$THUMBNAILS_SRC" ]; then
         --backup-dir "${ARCHIVE}/_library-thumbnails"
 fi
 
+if [ "$DROPBOX_UPLOAD_SKIPPED" -eq 1 ]; then
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox sync finished with skipped items (heartbeat not advanced) ==="
+    exit 0
+fi
+
 date +%s > "$STAMP" 2>/dev/null || true
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox sync complete ==="

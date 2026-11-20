@@ -12,6 +12,21 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 
+# Shape of the 2026-11-20 failure: a file changing mid-upload, then Dropbox 500 pages.
+TEMPORARY_LOG = """\
+2026/11/20 18:41:04 ERROR : rig.blend: corrupted on transfer: DropboxHash hash differ "a" vs "b"
+2026/11/20 18:41:05 ERROR : rig.blend1: Failed to copy: upload failed: Post "https://content.dropboxapi.com/2/files/upload_session/start": can't copy - source file is being updated (size changed from 1 to 2)
+2026/11/20 19:22:59 ERROR : Dropbox root 'farm/production': not deleting files as there were IO errors
+2026/11/20 19:22:59 ERROR : Attempt 1/3 failed with 2 errors and: upload failed: can't copy - source file is being updated
+2026/11/20 19:48:42 ERROR : data/storyboards/.objects/d8: error reading destination directory: <!DOCTYPE html>
+<div id="errorbox">
+<h1>Error (500)</h1>Something went wrong.
+</div>
+2026/11/20 19:48:42 ERROR : Attempt 3/3 failed with 5 errors and: march failed with 4 error(s): first error: <!DOCTYPE html>
+<h1>Error (500)</h1>Something went wrong.
+2026/11/20 19:48:42 Failed to sync with 5 errors: last error was: march failed
+"""
+
 
 class DropboxUploadTests(unittest.TestCase):
     def setUp(self):
@@ -55,6 +70,7 @@ def record(event):
                             'pid': os.getpid(), 'args': sys.argv[1:]}) + '\\n')
 record('start')
 time.sleep(float(os.environ.get('TEST_UPLOAD_SECONDS', '0.1')))
+sys.stderr.write(os.environ.get('TEST_UPLOAD_OUTPUT', ''))
 record('end')
 raise SystemExit(int(os.environ.get('TEST_UPLOAD_EXIT', '0')))
 """)
@@ -80,10 +96,11 @@ Path(sys.argv[2]).write_text('fake redis snapshot')
                 pass
             proc.communicate(timeout=5)
 
-    def launch(self, command, job, seconds="0.1", exit_code="0"):
+    def launch(self, command, job, seconds="0.1", exit_code="0", output=""):
         env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
                    TEST_EVENTS=str(self.events), TEST_JOB=job,
-                   TEST_UPLOAD_SECONDS=seconds, TEST_UPLOAD_EXIT=exit_code)
+                   TEST_UPLOAD_SECONDS=seconds, TEST_UPLOAD_EXIT=exit_code,
+                   TEST_UPLOAD_OUTPUT=output)
         proc = subprocess.Popen(command, env=env, text=True, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, start_new_session=True)
         self.processes.append(proc)
@@ -170,6 +187,44 @@ Path(sys.argv[2]).write_text('fake redis snapshot')
             stamp.write_text("previous success")
             self.finish(self.script(script, name, exit_code="7"), expected=7)
             self.assertEqual(stamp.read_text(), "previous success")
+
+    def test_temporary_errors_skip_without_failing_or_advancing_stamp(self):
+        for script, name in (("production-to-dropbox.sh", "production"),
+                             ("databases-to-dropbox.sh", "database")):
+            stamp = self.root / f"{name}.stamp"
+            stamp.write_text("previous success")
+            output = self.finish(self.script(script, name, exit_code="1", output=TEMPORARY_LOG))
+            self.assertIn("WARNING: Dropbox upload skipped 3 item(s)", output)
+            self.assertIn("heartbeat not advanced", output)
+            self.assertNotIn("sync complete", output)
+            self.assertEqual(stamp.read_text(), "previous success")
+
+    def test_temporary_skip_still_uploads_library_thumbnails(self):
+        (self.root / "thumbnails").mkdir()
+        self.finish(self.script("production-to-dropbox.sh", "production",
+                                exit_code="1", output=TEMPORARY_LOG))
+        self.assertEqual(len([e for e in self.recorded() if e["event"] == "start"]), 2)
+
+    def test_unrecognised_or_non_server_errors_still_fail(self):
+        stamp = self.root / "production.stamp"
+        for exit_code, extra in (
+            ("1", "2026/11/20 19:00:00 ERROR : a.blend: Failed to copy: insufficient_space\n"),
+            ("1", "2026/11/20 19:00:00 ERROR : d: error reading destination directory: "
+                  "<!DOCTYPE html>\n<h1>Error (404)</h1>\n"),
+            ("7", ""),
+            ("2", ""),
+        ):
+            with self.subTest(exit_code=exit_code, extra=extra):
+                output = self.finish(self.script(
+                    "production-to-dropbox.sh", "production",
+                    exit_code=exit_code, output=TEMPORARY_LOG + extra), expected=int(exit_code))
+                self.assertIn("ERROR: Dropbox upload failed", output)
+                self.assertFalse(stamp.exists())
+
+    def test_errors_without_any_rclone_error_lines_fail(self):
+        self.finish(self.script("production-to-dropbox.sh", "production", exit_code="1",
+                                output="2026/11/20 19:00:00 Failed to create file system\n"),
+                    expected=1)
 
     def test_queue_wait_does_not_consume_upload_timeout(self):
         first = self.helper("first", "2s", seconds="0.5")

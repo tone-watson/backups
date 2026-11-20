@@ -92,7 +92,18 @@ uploads, **after acquiring the lock**. The Redis snapshot has a separate five-mi
 limit. Failed or timed-out uploads do not update the success heartbeat. A 4.3 GiB
 database upload needs about 73 minutes at this cap before checking/retry overhead;
 the old one-hour service timeout is insufficient. Very large production backlogs
-can take several scheduled runs. Monitor successful completion and the off-box
+can take several scheduled runs.
+
+**Temporary errors skip instead of failing.** When every rclone error in a run is
+temporary (a source file changed while it was uploading, which happens when
+Syncthing or Blender writes a large `.blend`; a Dropbox 5xx page or malformed
+reply; a dropped connection), the upload logs `WARNING: Dropbox upload skipped …`
+and the service exits successfully, so systemd, the dashboard and alerts do not
+report a failure. The skipped items are retried on the next run, and the success
+heartbeat is **not** advanced, so the `sys/dbops` freshness check (14 h production,
+30 h database) still alerts if skips keep recurring. Any other error, a timeout,
+or a run with no recognisable error lines still fails the unit. The classifier is
+`classify_rclone_errors` in `rclone/dropbox-common.sh`. Monitor the off-box
 heartbeat; the cap does not establish that Wi-Fi driver crashes are fixed.
 
 Existing services execute the repository scripts directly, so cap and lock changes

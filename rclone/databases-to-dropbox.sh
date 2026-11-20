@@ -90,5 +90,10 @@ run_dropbox_upload 4h "$SRC" "$DEST" \
     --exclude '/backup_*/**' \
     --backup-dir "$ARCHIVE"
 
+if [ "$DROPBOX_UPLOAD_SKIPPED" -eq 1 ]; then
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox DB sync finished with skipped items (heartbeat not advanced) ==="
+    exit 0
+fi
+
 date +%s > "$STAMP" 2>/dev/null || true
 echo "=== $(date '+%Y-%m-%d %H:%M:%S') Dropbox DB sync complete ==="
