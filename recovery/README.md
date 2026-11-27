@@ -11,7 +11,7 @@ consistent captures. It intentionally retains unverified models/environments.
 
 The policy's `regenerable_paths` leaves out download caches and toolchains that
 can be rebuilt: the owner's `~/.cache/uv`, `~/.rustup`, `~/.cargo/registry` and
-`~/.cargo/git`.
+`~/.cargo/git`, plus Rust build directories such as Floodgate's `kernels/target`.
 - Each entry carries its `rebuild` instructions. Some also name `requires` recipe
   files; if any of those is missing, the path is backed up instead.
 - Each run's `selection.json` and receipt list what was left out

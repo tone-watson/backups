@@ -46,6 +46,11 @@
       "path": "/home/gradywoodruff/.cargo/git",
       "kind": "cache",
       "rebuild": "Nothing to run. cargo fetches git dependencies again on the next build, at the revisions pinned in Cargo.lock."
+    },
+    {
+      "path": "/srv/farm/sys/floodgate/kernels/target",
+      "kind": "cache",
+      "rebuild": "Nothing to run. Floodgate's sh scripts/runtime.sh sync rebuilds its Rust kernels; cargo recreates this build directory."
     }
   ],
   "manifest_roots": [
