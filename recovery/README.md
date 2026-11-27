@@ -8,6 +8,20 @@ incremental snapshots, a standalone restore entry point and a retention preview.
 The first policy preserves the whole observed root/Farm/boot filesystems except
 virtual/runtime paths, swap, the backup destination and source files replaced by
 consistent captures. It intentionally retains unverified models/environments.
+
+The policy's `regenerable_paths` leaves out download caches and toolchains that
+can be rebuilt: the owner's `~/.cache/uv`, `~/.rustup`, `~/.cargo/registry` and
+`~/.cargo/git`.
+- Each entry carries its `rebuild` instructions. Some also name `requires` recipe
+  files; if any of those is missing, the path is backed up instead.
+- Each run's `selection.json` and receipt list what was left out
+  (`regenerable_excluded`) and what was kept (`regenerable_retained`).
+- These paths are also skipped by the metadata scan, so a deep cache can't
+  produce an unmapped scan boundary.
+- `/srv/farm/.uv/cache` must not be listed. The API's offline runtime recipes
+  rebuild from it with `--offline --no-build`.
+- Project venvs stay in the backup. They are mostly hardlinks into that cache, so
+  leaving them out would save little.
 Metadata scan boundaries are separate from payload exclusions. The
 [classification](/srv/farm/docs/guides/disaster-recovery/2026-10-12-classification.md)
 describes how later verified recipes can reduce this selection.

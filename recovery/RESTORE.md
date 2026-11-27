@@ -78,6 +78,19 @@ that preserves numeric ownership, hardlinks, ACLs and xattrs, for example
 use `--delete` against a live machine. The original `/srv/farm/models` and home
 Conda symlinks and all Git worktree relationships must be retained.
 
+Some paths are deliberately not in the snapshot: download caches and toolchains
+that rebuild from public sources.
+- `regenerable_paths` in
+  `/mnt/farm-restored/var/lib/farm-recovery/current/policy.json` lists them, each
+  with its `rebuild` instructions.
+- The `selection.json` next to that file shows what this snapshot actually left
+  out (`regenerable.excluded`). It also shows anything kept because a recipe file
+  was missing (`regenerable.retained`).
+- After restoring the home and `/srv/farm` trees, follow each left-out entry's
+  `rebuild` instructions as its owning user, before starting anything that uses it.
+- `/srv/farm/.uv/cache` is always in the snapshot, because offline runtime recipes
+  rebuild from it.
+
 The first profile already preserves local source and runtime payloads. Internet
 clone/install recipes are optional alternatives until validated. For repaired
 runtimes, follow the preserved per-component locks, runtime scripts, local wheels,

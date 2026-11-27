@@ -123,6 +123,58 @@ class GuardTests(unittest.TestCase):
         self.assertIn("/snap/other/7", excluded)
 
 
+class RegenerableTests(unittest.TestCase):
+    @staticmethod
+    def policy(*entries, roots=("/",)):
+        return {"source_roots": list(roots), "regenerable_paths": list(entries)}
+
+    def test_selection_keeps_paths_whose_recipe_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            lock = Path(temporary) / "uv.lock"
+            lock.write_text("")
+            gone = str(Path(temporary) / "gone.lock")
+            selection = recovery.regenerable_selection(self.policy(
+                {"path": "/srv/cache", "kind": "cache", "rebuild": "download"},
+                {"path": "/srv/app/.venv", "kind": "environment", "rebuild": "sync", "requires": [str(lock)]},
+                {"path": "/srv/other/.venv", "kind": "environment", "rebuild": "sync", "requires": [gone]}))
+        self.assertEqual(selection["excluded"], ["/srv/cache", "/srv/app/.venv"])
+        self.assertEqual(selection["retained"], [{"path": "/srv/other/.venv", "missing": [gone]}])
+
+    def test_invalid_entries_rejected(self):
+        good = {"path": "/srv/cache", "kind": "cache", "rebuild": "download"}
+        invalid = [
+            {"kind": "cache", "rebuild": "download"},
+            dict(good, kind="model"),
+            dict(good, rebuild=" "),
+            {"path": "/srv/env", "kind": "environment", "rebuild": "sync"},
+            dict(good, path="relative"),
+            dict(good, path="/srv"),
+            dict(good, requires=["/srv/cache/uv.lock"]),
+            dict(good, requires="/srv/uv.lock"),
+            dict(good, extra=True),
+        ]
+        for entry in invalid:
+            with self.subTest(entry=entry), self.assertRaises(recovery.RecoveryError):
+                recovery.regenerable_entries(self.policy(entry, roots=("/", "/srv/farm")))
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.regenerable_entries(self.policy(good, good))
+        with self.assertRaises(recovery.RecoveryError):
+            recovery.regenerable_entries({"source_roots": ["/"], "regenerable_paths": good})
+
+    def test_exclusions_include_regenerable_paths(self):
+        policy = dict(self.policy({"path": "/srv/cache", "kind": "cache", "rebuild": "download"}), mode="fixture")
+        excluded = recovery.exclusions_for(policy, Path("/mnt/drive"), Path("/root/password"),
+                                           Path("/var/lib/recovery"), {})
+        self.assertIn("/srv/cache", excluded)
+
+    def test_server_policy_regenerable_paths(self):
+        policy = recovery.load_policy(HERE / "policy.server.json")
+        paths = [entry["path"] for entry in recovery.regenerable_entries(policy)]
+        self.assertIn("/home/gradywoodruff/.rustup", paths)
+        # Offline API runtime recipes rebuild from this cache with --offline --no-build.
+        self.assertNotIn("/srv/farm/.uv/cache", paths)
+
+
 RESTIC = os.environ.get("FARM_TEST_RESTIC") or shutil.which("restic")
 
 
@@ -206,6 +258,42 @@ class RoundTripTests(unittest.TestCase):
         self.assertEqual(self.snapshots(), before)
         self.run_cli("restore", "--target", target, expected=1)
         self.run_cli("init", expected=1)
+
+    def test_regenerable_paths_left_out_unless_recipe_missing(self):
+        cache = self.source / "cache"
+        deep = cache / "a" / "b" / "c" / "d"
+        deep.mkdir(parents=True)
+        (deep / "blob").write_bytes(b"x" * 1024)
+        env = self.source / "env"
+        env.mkdir()
+        (env / "payload").write_text("installed")
+        (self.source / "kept.txt").write_text("source")
+        missing = str(self.source / "missing.lock")
+        # Shallow scan bounds: without the scan exclusion, the deep cache would be an
+        # unmapped excluded path and the backup would refuse to run.
+        self.policy["scan_max_depth"] = 3
+        self.policy["regenerable_paths"] = [
+            {"path": str(cache), "kind": "cache", "rebuild": "download again"},
+            {"path": str(env), "kind": "environment", "rebuild": "sync from lock", "requires": [missing]}]
+        self.policy_path.write_text(json.dumps(self.policy))
+        self.run_cli("init", "--uuid", "fixture")
+        self.run_cli("backup")
+        receipt = json.loads(next((self.root / "state/receipts").glob("*.json")).read_text())
+        self.assertEqual(receipt["status"], "complete")
+        self.assertEqual(receipt["regenerable_excluded"], [str(cache)])
+        self.assertEqual(receipt["regenerable_retained"], [{"path": str(env), "missing": [missing]}])
+        target = self.root / "restored"
+        self.run_cli("restore", "--target", target)
+        restored = self.restored(target)
+        self.assertFalse((restored / "cache").exists())
+        self.assertEqual((restored / "env" / "payload").read_text(), "installed")
+        self.assertEqual((restored / "kept.txt").read_text(), "source")
+        stage = target / str(self.root / "state/current").lstrip("/")
+        selection = json.loads((stage / "selection.json").read_text())
+        self.assertIn(str(cache), selection["excluded_exact_paths"])
+        self.assertEqual(selection["regenerable"]["excluded"], [str(cache)])
+        self.assertEqual(json.loads((stage / "policy.json").read_text())["regenerable_paths"][0]["rebuild"],
+                         "download again")
 
     def test_incomplete_restic_exit_not_promoted(self):
         (self.source / "value").write_text("old")

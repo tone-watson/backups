@@ -23,6 +23,31 @@
     "/run",
     "/swap.img"
   ],
+  "regenerable_paths": [
+    {
+      "path": "/home/gradywoodruff/.cache/uv",
+      "kind": "cache",
+      "rebuild": "Nothing to run. uv downloads into this cache again on the next uvx, uv tool or pre-commit run. Farm runtimes use /srv/farm/.uv/cache, which is backed up because offline runtime recipes rebuild from it."
+    },
+    {
+      "path": "/home/gradywoodruff/.rustup",
+      "kind": "toolchain",
+      "requires": [
+        "/home/gradywoodruff/.cargo/bin/rustup"
+      ],
+      "rebuild": "As gradywoodruff: rustup set profile minimal && rustup default stable && rustup component add rustfmt clippy. Projects install their pinned toolchains from rust-toolchain.toml on first build. See /srv/farm/docs/guides/rust-toolchain.md."
+    },
+    {
+      "path": "/home/gradywoodruff/.cargo/registry",
+      "kind": "cache",
+      "rebuild": "Nothing to run. cargo downloads crates again on the next build, checked against each project's Cargo.lock."
+    },
+    {
+      "path": "/home/gradywoodruff/.cargo/git",
+      "kind": "cache",
+      "rebuild": "Nothing to run. cargo fetches git dependencies again on the next build, at the revisions pinned in Cargo.lock."
+    }
+  ],
   "manifest_roots": [
     "/srv/farm",
     "/home",
@@ -181,6 +206,7 @@
     "All host filesystem mounts must be reviewed against source_roots before backup.",
     "Application-wide transactions and identity/session stores outside listed consistent captures require acceptance review; a restic snapshot is not a global filesystem snapshot.",
     "Docker/LXD runtime recipes omit only verified exact device/socket/link entries and record their reconstruction; unexpected types or targets fail capture.",
-    "Use the no-service-change prepare command before a drive is available."
+    "Use the no-service-change prepare command before a drive is available.",
+    "regenerable_paths leaves out only caches and toolchains that rebuild from preserved recipes or public sources; an entry whose required recipe file is missing is backed up instead. Each run's selection.json and receipt list what was left out and what was kept."
   ]
 }

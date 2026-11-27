@@ -122,6 +122,62 @@ def managed_state(state):
             raise RecoveryError("Previous capture is incomplete; review its service journal and move current/ aside before retrying")
 
 
+REGENERABLE_KINDS = {"cache", "toolchain", "environment"}
+
+
+def regenerable_entries(policy):
+    """Validated paths a snapshot may leave out because they can be rebuilt.
+
+    Each entry names how to rebuild it. ``requires`` lists the recipe files the
+    rebuild depends on (locks, runtime scripts); an environment must name at least one.
+    """
+    entries = policy.get("regenerable_paths", [])
+    if not isinstance(entries, list):
+        raise RecoveryError("regenerable_paths must be a list")
+    roots = [absolute(p) for p in policy.get("source_roots", [])]
+    seen = set()
+    result = []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) - {"path", "kind", "rebuild", "requires"}:
+            raise RecoveryError("Regenerable entries take only path, kind, rebuild and requires")
+        if not isinstance(entry.get("path"), str):
+            raise RecoveryError("Regenerable entry has no path")
+        path = absolute(entry["path"])
+        kind, rebuild, requires = entry.get("kind"), entry.get("rebuild"), entry.get("requires", [])
+        if kind not in REGENERABLE_KINDS:
+            raise RecoveryError(f"Unknown regenerable kind for {path}")
+        if not isinstance(rebuild, str) or not rebuild.strip():
+            raise RecoveryError(f"Regenerable path {path} needs rebuild instructions")
+        if not isinstance(requires, list) or not all(isinstance(r, str) for r in requires):
+            raise RecoveryError(f"Regenerable path {path} has malformed requires")
+        requires = [absolute(r) for r in requires]
+        if kind == "environment" and not requires:
+            raise RecoveryError(f"Regenerable environment {path} must name its recipe files")
+        if path in seen or any(beneath(root, path) for root in roots):
+            raise RecoveryError(f"Regenerable path {path} is duplicated or contains a source root")
+        if any(beneath(r, path) for r in requires):
+            raise RecoveryError(f"Regenerable path {path} cannot contain its own recipe")
+        seen.add(path)
+        result.append({"path": str(path), "kind": kind, "rebuild": rebuild,
+                       "requires": [str(r) for r in requires]})
+    return result
+
+
+def regenerable_selection(policy):
+    """Split regenerable paths into those this snapshot leaves out and those it keeps.
+
+    A path whose recipe file is missing is backed up rather than silently dropped.
+    """
+    excluded, retained = [], []
+    for entry in regenerable_entries(policy):
+        missing = [r for r in entry["requires"] if not Path(r).is_file()]
+        if missing:
+            retained.append({"path": entry["path"], "missing": missing})
+        else:
+            excluded.append(entry["path"])
+    return {"excluded": excluded, "retained": retained}
+
+
 def validate_manifest(report, roots, exclusions):
     if report.get("errors"):
         raise RecoveryError("Manifest has discovery errors; resolve them before a server backup")
@@ -149,6 +205,7 @@ def load_policy(path):
     for key in ("exclude_paths", "manifest_roots", "scan_exclusions"):
         for p in data.get(key, []):
             absolute(p)
+    regenerable_entries(data)
     absolute(data["state_dir"])
     if data["mode"] == "fixture":
         base = real_directory(data["fixture_root"])
@@ -522,8 +579,11 @@ def escape_pattern(path):
     return "".join("\\" + c if c in "\\*?[" else c for c in str(path))
 
 
-def exclusions_for(policy, drive, password, state, captures):
+def exclusions_for(policy, drive, password, state, captures, regenerable=None):
     result = set(policy.get("exclude_paths", []))
+    if regenerable is None:
+        regenerable = regenerable_selection(policy)
+    result.update(regenerable["excluded"])
     result.update([str(drive), str(password), str(state / "operation.lock"), str(state / "receipts"),
                    str(state / "diagnostics")])
     result.update(captures.get("exclusions", []))
@@ -617,8 +677,13 @@ def backup(args, policy):
         write_json(receipt_path, receipt)
         try:
             print(json.dumps({"phase": "manifest", "run_id": run_id}), flush=True)
+            # Computed once so the scan, the exclusions and the receipt agree.
+            regenerable = regenerable_selection(policy)
+            receipt["regenerable_excluded"] = regenerable["excluded"]
+            receipt["regenerable_retained"] = regenerable["retained"]
             manifest_policy = dict(policy)
-            manifest_policy["scan_exclusions"] = list(set(policy.get("scan_exclusions", []) + [str(drive), str(state)]))
+            manifest_policy["scan_exclusions"] = list(set(policy.get("scan_exclusions", []) + regenerable["excluded"]
+                                                          + [str(drive), str(state)]))
             report = collect_manifest(manifest_policy)
             for p in report.get("required_roots", []):
                 if isinstance(p, dict):
@@ -635,7 +700,7 @@ def backup(args, policy):
             print(json.dumps({"phase": "capture", "run_id": run_id}), flush=True)
 
             effective_policy = dict(policy, source_roots=list(map(str, roots)))
-            preliminary_exclusions = exclusions_for(effective_policy, drive, engine.password, state, {})
+            preliminary_exclusions = exclusions_for(effective_policy, drive, engine.password, state, {}, regenerable)
             for root in roots:
                 if any(beneath(root, Path(ex)) for ex in preliminary_exclusions):
                     raise RecoveryError(f"Required source root excluded by policy: {root}")
@@ -647,8 +712,9 @@ def backup(args, policy):
                 raise RecoveryError("One or more consistent captures failed")
             write_json(stage / "capture.json", captured)
             kit(stage / "rescue-kit")
-            excluded = exclusions_for(effective_policy, drive, engine.password, state, captured)
-            write_json(stage / "selection.json", {"roots": list(map(str, roots)), "excluded_exact_paths": excluded})
+            excluded = exclusions_for(effective_policy, drive, engine.password, state, captured, regenerable)
+            write_json(stage / "selection.json", {"roots": list(map(str, roots)), "excluded_exact_paths": excluded,
+                                                  "regenerable": regenerable})
             for root in roots:
                 if any(beneath(root, Path(ex)) for ex in excluded):
                     raise RecoveryError(f"Required source root excluded by policy: {root}")
