@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.14.0 - 2026-11-27
+### CHANGED:
+- Leave rebuildable caches and toolchains out of recovery snapshots
+
+
 ## v1.13.2 - 2026-11-20
 ### CHANGED:
 - Treat Dropbox's plain-text 5xx reply as temporary; install rclone from the .deb
