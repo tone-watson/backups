@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.14.1 - 2026-11-27
+### CHANGED:
+- Leave Floodgate's Rust build directory out of recovery snapshots
+
+
 ## v1.14.0 - 2026-11-27
 ### CHANGED:
 - Leave rebuildable caches and toolchains out of recovery snapshots
