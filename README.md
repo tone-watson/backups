@@ -1,5 +1,8 @@
 # sys/backups — offsite & content backups
 
+The timers and `farm backup` run the live release in `/opt/farm/backups/current`;
+ship with `farm release`, then `farm build backups` ([live release](docs/live-release.md)).
+
 Complements **`sys/dbops`** (which backs up the SQLite databases under `/data/databases`).
 This component handles the **big, irreplaceable creative work** and **offsite** copies.
 

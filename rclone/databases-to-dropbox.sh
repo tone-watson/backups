@@ -34,7 +34,7 @@ DEST="${DEST_ROOT}/databases"
 ARCHIVE="${DEST_ROOT}/_archive/databases/$(date +%Y-%m-%d)"
 LOG="/srv/farm/logs/farm-dropbox-db-sync.log"
 STAMP="/srv/farm/logs/farm-dropbox-db-sync.stamp"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "${SCRIPT_DIR}/dropbox-common.sh"
 
 

@@ -11,7 +11,7 @@ Wants=network-online.target
 Type=oneshot
 User=gradywoodruff
 Group=gradywoodruff
-ExecStart=/srv/farm/sys/backups/rclone/databases-to-dropbox.sh
+ExecStart=/opt/farm/backups/current/rclone/databases-to-dropbox.sh
 Nice=10
 IOSchedulingClass=idle
 # Queue wait is separate from the script's four-hour upload budget. The Redis

@@ -37,8 +37,8 @@ tunnel credential. Install the unit + timer (mirrors the other `sys/backups` tim
 
 ```bash
 sudo mkdir -p /usr/local/lib/farm-config-snapshot
-sudo install -o root -g root -m 755 /srv/farm/sys/backups/config/snapshot.sh      /usr/local/lib/farm-config-snapshot/snapshot.sh
-sudo install -o root -g root -m 644 /srv/farm/sys/backups/config/capture-api-uv.py /usr/local/lib/farm-config-snapshot/capture-api-uv.py
+sudo install -o root -g root -m 755 /opt/farm/backups/current/config/snapshot.sh      /usr/local/lib/farm-config-snapshot/snapshot.sh
+sudo install -o root -g root -m 644 /opt/farm/backups/current/config/capture-api-uv.py /usr/local/lib/farm-config-snapshot/capture-api-uv.py
 sudo cp /srv/farm/sys/backups/systemd/farm-config-snapshot.service /etc/systemd/system/
 sudo cp /srv/farm/sys/backups/systemd/farm-config-snapshot.timer /etc/systemd/system/
 sudo systemctl daemon-reload

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# One-way, versioned backup of the production tree to Dropbox via rclone.
+# One-way versioned backup of the production tree to Dropbox via rclone.
 #
 # SAFETY: this script ONLY READS /srv/farm/production and writes to the Dropbox
 # remote. It NEVER writes to or deletes anything under /srv/farm/production, so
@@ -9,11 +9,11 @@
 #
 # VERSIONING: instead of deleting/overwriting files on Dropbox, old versions are
 # moved into a dated _archive/ folder (--backup-dir). So if a file is deleted on
-# the Mac and Syncthing propagates that deletion to the server, the Dropbox copy
+# the Mac and Syncthing propagates the deletion to the server, the Dropbox copy
 # is preserved under _archive/<date>/ rather than lost. (Dropbox also keeps its
 # own native version history as a second safety net.)
 #
-# Activation (one time): see ../README.md  (install rclone, `rclone config` a
+# Activation (one time): see ../README.md (install rclone, `rclone config` a
 # remote named "dropbox", then enable the timer).
 
 set -euo pipefail
@@ -27,7 +27,7 @@ THUMBNAILS_DEST="${DEST_ROOT}/library-thumbnails"
 ARCHIVE="${DEST_ROOT}/_archive/$(date +%Y-%m-%d)"
 LOG="/var/log/farm-dropbox-sync.log"
 STAMP="/srv/farm/logs/farm-dropbox-sync.stamp"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 EXCLUDE="${SCRIPT_DIR}/exclude.txt"
 source "${SCRIPT_DIR}/dropbox-common.sh"
 
