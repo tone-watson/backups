@@ -1,6 +1,11 @@
 # Changelog
 
 
+## v1.15.0 - 2026-11-28
+### CHANGED:
+- Run the Dropbox pushes and recovery helper from a live release
+
+
 ## v1.14.1 - 2026-11-27
 ### CHANGED:
 - Leave Floodgate's Rust build directory out of recovery snapshots

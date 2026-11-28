@@ -17,7 +17,7 @@
     ],
     "keep": 3
   },
-  "version": "1.14.1",
+  "version": "1.15.0",
   "scripts": {
     "sync-now": "./rclone/production-to-dropbox.sh",
     "sync-status": "systemctl status farm-dropbox-sync.timer --no-pager",
